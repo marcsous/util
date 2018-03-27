@@ -116,7 +116,8 @@ for i = 1:N(1)
         else
             imagesc(im_k);
         end
-        axis off
+        set(gca,'XTickLabel','');
+        set(gca,'YTickLabel','');
         if ~isempty(TITLE)
             if size(TITLE,1)==1 % use same setting for all
                 title(TITLE(1,:),'FontSize',10)

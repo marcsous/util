@@ -16,10 +16,11 @@ if isnumeric(filename)
     filename = num2str(filename);
 end
 
-% strip bad chars from the end
-while ~isalpha_num(filename(end))
+% remove bad terminating characters
+ok = 'abcdefghijklmnopqrstuvwxyz_0123456789';
+while ~ismember(lower(filename(end)),ok)
     filename = filename(1:end-1);
-    if numel(filename)==0; error('Filename not valid.'); end
+    if isempty(filename); error('Filename not valid.'); end
 end
 
 % image file format
@@ -29,7 +30,7 @@ switch ext
     case '.png';  format = 'png';
     case '.jpg';  format = 'jpeg';
     case '.jpeg'; format = 'jpeg';
-    case '.tif';  format = 'tiff';
+    case '.tif';  format = 'tif';
     case '.tiff'; format = 'tiff';
     case '.bmp';  format = 'bmp';
     otherwise; error('Image file format "%s" not recognized.',ext)
