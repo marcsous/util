@@ -1,4 +1,5 @@
 function cplot(x,y,z)
+% Complex plot function (real and imag parts).
 
 h = ishold;
 
