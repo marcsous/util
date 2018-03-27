@@ -1,7 +1,7 @@
 function flag = lpr(filename)
 %function lpr(filename)
 % Exports current Figure to 'image.png' on Desktop.
-% If filename is supplied, writes to filename(.tiff).
+% If filename is supplied, writes to filename(.tif).
 
 % no figures open!
 if isempty(get(0,'currentfigure'))
@@ -10,7 +10,7 @@ end
 
 % default filename and image format
 if nargin==0
-	filename = 'image.png';
+	filename = 'image';
 end
 if isnumeric(filename)
     filename = num2str(filename);
