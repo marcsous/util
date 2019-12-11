@@ -1,7 +1,6 @@
 function [x,flag,relres,iter,resvec] = pcgpc(A,b,tol,maxit,M1,M2,x0)
-%
 % Preconditioned conjugate gradient solver with modifications to
-% support the use of a penalty on Im(x), aka phase constraint.
+% support the use of a penalty on Im(x), aka a phase constraint.
 %
 % Meant to be used with anonymous functions, A = @(x)myfunc(x),
 % where myfunc(x) should return:
@@ -115,7 +114,7 @@ else
 end
 
 % return arguments
-if nargout~=1
+if nargout>2
     
     % remeasure final residual
     resvec(end) = norm(b-A(x));
@@ -124,8 +123,9 @@ if nargout~=1
     resvec = reshape(resvec,[],1);
     relres = resvec(end)./delta0;
 
-    % display
-    fprintf('%s terminated at iteration %i (flag %i): relres = %e. ',mfilename,iter,flag,relres); toc(t);
-
 end
 
+% only display if flag not supplied
+if nargout<2
+    fprintf('pcg terminated at iteration %i (flag %i): relres = %e. ',iter,flag,relres); toc(t);
+end

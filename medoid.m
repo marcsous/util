@@ -1,5 +1,5 @@
 function y = medoid(x,dim,nanflag)
-%y = medoid(x,dim)
+%y = medoid(x,dim,nanflag)
 %
 % Calculates medoid along a specified dimension.
 %

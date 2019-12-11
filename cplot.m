@@ -1,29 +1,28 @@
 function cplot(x,y,z)
-% Complex plot function (real and imag parts).
 
 h = ishold;
 
 if nargin==1
-    xx = 1:length(x);
-    yy = x;
+    xx = 1:numel(x);
+    yy = x(:);
     ropts = '';
     iopts = '--';
 end
 if nargin==3
-    xx = x;
-    yy = y;
+    xx = x(:);
+    yy = y(:);
     ropts = z;
     iopts = z;
 end
 if nargin==2
     if ischar(y)
-        xx = 1:length(x);
-        yy = x;
+        xx = 1:numel(x);
+        yy = x(:);
         ropts = y;
         iopts = y;
     else
-        xx = x;
-        yy = y;
+        xx = x(:);
+        yy = y(:);
         ropts = '';
         iopts = '--r';
     end

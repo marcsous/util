@@ -1,8 +1,7 @@
 function flag = lpr(filename)
 %function lpr(filename)
-% Exports current Figure to 'image.tif' on Desktop.
-% If filename is supplied, writes to filename(.tif)
-% or another recognized format (.png .jpg .bmp).
+% Exports current Figure to 'image.png' on Desktop.
+% If filename is supplied, writes to filename(.tiff).
 
 % no figures open!
 if isempty(get(0,'currentfigure'))
@@ -11,7 +10,7 @@ end
 
 % default filename and image format
 if nargin==0
-	filename = 'image';
+	filename = 'image.jpg';
 end
 if isnumeric(filename)
     filename = num2str(filename);
@@ -27,7 +26,7 @@ end
 % image file format
 [pathstr,filestr,ext] = fileparts(filename);
 switch ext
-    case '';      format = 'tif'; ext = '.tif'; % default
+    case '';      format = 'tiff'; ext = '.tif'; % default
     case '.png';  format = 'png';
     case '.jpg';  format = 'jpeg';
     case '.jpeg'; format = 'jpeg';

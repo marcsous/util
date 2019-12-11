@@ -1,5 +1,5 @@
-function h = ims(im,CLIM,TITLE)
-%Show images: h = ims(im,CLIM,TITLE)
+function h = ims(im,CLIM,TITLE,TILING)
+%h = ims(im,CLIM,TITLE,TILING)
 %
 % CLIM:
 %   [FRAC] = scale to fraction of the range
@@ -8,6 +8,9 @@ function h = ims(im,CLIM,TITLE)
 %
 % TITLE:
 %   {'plot1', 'plot2', ...}
+%
+% TILING:
+%   [N1 N2] = tiling for multi image display
 %
 % h returns handles to all the subplots
 
@@ -25,17 +28,19 @@ if exist('TITLE','var')
 else
     TITLE = '';
 end
-if ~exist('CLIM','var') || isempty(CLIM)
+if ~exist('CLIM','var')
     CLIM = 0.99; % default to 99% of range
-end
-if numel(CLIM)==1
-    if CLIM<0 || CLIM>1 || ~isreal(CLIM)
+elseif numel(CLIM)==1
+    if CLIM<0 || CLIM>1
         error('CLIM (scalar) must be between 0 and 1.');
     end
-else
+elseif numel(CLIM)>=2
     if size(CLIM,2)~=2
-        error('CLIM must have shape [low high; ... ].')
+        error('CLIM must be [low high; ... ].')
     end
+end
+if ~isreal(CLIM)
+    error('CLIM must be real valued.')
 end
 
 % for complex produce 2 maps
@@ -47,57 +52,68 @@ end
 % make into 3D array
 im = squeeze(im);
 [x y n] = size(im);
-im = reshape(im,x,y,n);
-
-% catch likely errors
-nmax = 8;
-if n>nmax
-    mid = round(n/2-nmax/2);
-    warning('too many images (%i)... showing slices %i-%i only.',n,mid,mid+nmax)
-    im = im(:,:,mid:mid+nmax);
-    n = nmax;
-end
 if n==0
     error('Image array cannot be empty.')
 end
-if isa(im,'gpuArray')
-    im = gather(im);
-end
+im = reshape(im,x,y,n);
 
 % try and figure out a nice tiling
-rows = floor(sqrt(n));
-cols = ceil(n/rows);
-N = [rows cols];
+if exist('TILING','var')
+    if numel(TILING)~=2 || ~isnumeric(TILING) || any(mod(TILING,1))
+        error('TILING must be a 2 vector of integers.');
+    end
+    if prod(TILING)<n || prod(TILING)>100
+        error('TILING probably too large or too small (%ix%i).',TILING);
+    end
+else
+    % catch likely error (too many images!)
+    nmax = 12;
+    if n>nmax
+        mid = round(n/2-nmax/2);
+        %warning('too many images (%i)... showing slices %i-%i only.',n,mid,mid+nmax)
+        im = im(:,:,mid:mid+nmax);
+        n = nmax;
+    end
+    rows = floor(sqrt(n));
+    cols = ceil(n/rows);
+    TILING = [rows cols];
+end
 
+    
 % clear existing plots, unless a single image
 if n>1
     clf reset
 end
 
 % plot here
-for i = 1:N(1)
-    for j = 1:N(2)
-        k = (i-1)*N(2)+j;
+for i = 1:TILING(1)
+    for j = 1:TILING(2)
+        
+        % subplot number
+        k = (i-1)*TILING(2)+j;
         if k>n; break; end
+        if n>1 % retile (unless 1 image)
+            h(k) = subplot(TILING(1),TILING(2),k);
+        else
+            h = gca;
+        end
+
+        % use double to prevent any matlab weirdness
+        im_k = double(gather(im(:,:,k)));
         
-        im_k = double(im(:,:,k)); % prevent any matlab weirdness
-        lo = nanmin(nanmin(im_k));
-        hi = nanmax(nanmax(im_k));
+        % display range (CLIM)
+        lo = min(im_k(isfinite(im_k)));
+        hi = max(im_k(isfinite(im_k)));
         
-        if ~isempty(CLIM) && isfinite(lo) && isfinite(hi)
+        if ~isempty(CLIM) && ~isempty(lo) && ~isempty(hi)
             if numel(CLIM)==1 % use fraction of the range
                 edges = linspace(lo,hi,256);
-                C = histc(reshape(im_k,[],1),edges);
-                C = cumsum(C) / numel(im_k);
+                C = histc(im_k(isfinite(im_k)),edges);
+                C = cumsum(C) / nnz(isfinite(im_k));
                 [C IA] = unique(C);
-                if C(1)==0
-                    CP = C; IAP = IA;
-                else
-                    CP = [0;C]; IAP = [1;1+IA]; % pad a zero at the bottom edge
-                end
-                idx = interp1(CP,IAP,(1-CLIM)/2);
+                idx = interp1(C,IA,(1-CLIM)/2,'nearest','extrap');
                 lo = interp1(IA,edges(IA),idx);
-                idx = interp1(CP,IAP,1-(1-CLIM)/2);
+                idx = interp1(C,IA,1-(1-CLIM)/2,'nearest','extrap');
                 hi = interp1(IA,edges(IA),idx);
             elseif size(CLIM,1)==1 % use same setting for all
                 if ~isnan(CLIM(1,1));lo = CLIM(1,1);end
@@ -107,19 +123,17 @@ for i = 1:N(1)
                 if ~isnan(CLIM(k,2));hi = CLIM(k,2);end
             end
         end
-        % retile, unless a single image
-        if n>1
-            h(k) = subplot(N(1),N(2),k);
-        end
-        if lo<hi
-            imagesc(im_k,[lo hi]);
-        else
+        if isequal(lo,hi)
             imagesc(im_k);
+        else
+            imagesc(im_k,[lo hi]);
         end
         set(gca,'XTickLabel','');
         set(gca,'YTickLabel','');
+        colorbar;
+
         if ~isempty(TITLE)
-            if size(TITLE,1)==1 % use same setting for all
+            if size(TITLE,1)==1 % use same for all
                 title(TITLE(1,:),'FontSize',10)
             else
                 if k<=size(TITLE,1) % individual titles
@@ -134,10 +148,10 @@ for i = 1:N(1)
     end
 end
 
-% if extra space, put focus on "next" plot
-if k<=N(1)*N(2) && n>1
-    h(k) = subplot(N(1),N(2),k);
-    axis off
+% if extra space on the subplot, put focus on "next" one
+if k<=TILING(1)*TILING(2) && n>1
+    h(k) = subplot(TILING(1),TILING(2),k);
+    axis off;
 end
 
 % prevent output to screen

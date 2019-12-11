@@ -19,6 +19,9 @@ data = data(ok);
 [t,ok] = sort(t);
 data = data(ok);
 
+t = double(gather(t));
+data = double(gather(data));
+
 % regression, confidence intervals (95%), etc.
 X = [ones(size(t)) t];
 Y = data;
@@ -42,18 +45,17 @@ hold on
 plot(t,x(1)+x(2)*t,'r');
 
 % prediction interval
-[lower upper] = predci(t,data,t);
-plot(t,lower,'r:','linewidth',1)
-plot(t,upper,'r:','linewidth',1)
+tpred = linspace(min(t),max(t),5*numel(t));
+[lower upper] = predci(t,data,tpred);
+plot(tpred,lower,'r:','linewidth',1)
+plot(tpred,upper,'r:','linewidth',1)
 hold off
 
 % text box
-str{1} = sprintf('slope = %.3f ± %.3f',x(2),ci95(2));
-str{2} = sprintf('intercept = %.3f ± %.3f',x(1),ci95(1));
-text(0.025,0.925,str,'Units','Normalized','FontName','FixedWidth')
-
-str = sprintf('R^2 = %.3f',r2);
-text(0.725,0.955,str,'Units','Normalized','FontName','FixedWidth')
+str{1} = sprintf('slope = %.4f ± %.4f',x(2),ci95(2));
+str{2} = sprintf('intercept = %.4f ± %.4f',x(1),ci95(1));
+str{3} = sprintf('R-squared = %.2f (p=%.1e)',r2,p);
+text(0.02,0.91,str,'Units','Normalized','FontName','FixedWidth')
 
 % screen text
 disp([' slope     ' num2str(x(2)) ' ± ' num2str(ci95(2)) ' (95% CI)'])

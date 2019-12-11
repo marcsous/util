@@ -1,9 +1,9 @@
-function [data,TE,SL,FA,TR,TI,BV,LF,SN,AN,dcm,pathname] = get_dicom(token,pathname,maxno)
-%
-% Usage: [data,TE,SL,FA,TR,TI,BV,LF,SN,AN,dcm,pathname] = get_dicom(token,pathname,maxno);
+function [data params] = get_dicom(token,pathname,maxno)
+% Usage: [data params] = get_dicom(pathname)
+% Usage: [data params] = get_dicom(token,pathname,maxno)
 %
 % Locates all DICOM files in the path specified by pathname and filtered by token.
-% Recurses into all subdirectories.
+% Recurses into subdirectories.
 %
 % Inputs:
 %  token is an identifier to parse the DICOM header:
@@ -15,15 +15,16 @@ function [data,TE,SL,FA,TR,TI,BV,LF,SN,AN,dcm,pathname] = get_dicom(token,pathna
 %
 % Outputs:
 %  data is a high dimensional array sorted by parameters
-
-% parallel option (only works in later matlab versions)
-try; gcp; end
+%  params is a structure of parameters (e.g. params.te is te in seconds)
 
 %% handle arguments
 if ~exist('token','var')
     token = []; % empty string also acceptable
+elseif exist(token,'dir')
+    pathname = token;
+    token = [];
 end
-if ~exist('pathname','var') | isempty(pathname)
+if ~exist('pathname','var') || isempty(pathname)
     pathname = uigetdir();
     if isequal(pathname,0); return; end
 end
@@ -39,7 +40,7 @@ end
 if ~exist(pathname,'dir')
     error(['pathname does not exist: ' pathname])
 end
-if ~exist('maxno','var') | isempty(maxno)
+if ~exist('maxno','var') || isempty(maxno)
     maxno = Inf;
 end
 disp([mfilename '(): ' pathname])
@@ -59,13 +60,6 @@ else
     info = get_files(pathname); % recurse into directories
 end
 
-% allow read-in from multiple series (false if filtering by series no.)
-if isa(token,'numeric') & ~isempty(token)
-    ignore_SN = false;
-else
-    ignore_SN = true;
-end
-
 %% read in data
 
 % create file counter using temp file (workaround for parfor)
@@ -73,7 +67,7 @@ tmpfile = [tempname '.delete.me'];
 fid = fopen(tmpfile,'w');
 fclose(fid);
 
-parfor j = 1:numel(info) % if there is an error here, change parfor to for
+for j = 1:numel(info) % fast with parfor
 
     % current file
     filename = [pathname info(j).name];
@@ -85,7 +79,7 @@ parfor j = 1:numel(info) % if there is an error here, change parfor to for
         head = dicominfo(filename);
         
         % filter by property
-        if isempty(token) | isa(token,'struct')
+        if isempty(token) || isa(token,'struct')
             found = true;
         elseif isa(token,'char')
             found = ~isempty(strfind(head.SeriesDescription,token));
@@ -97,21 +91,33 @@ parfor j = 1:numel(info) % if there is an error here, change parfor to for
             found = false;
         end
 
+        % skip "REPORT" dicoms
+        if isequal(head.Modality,'SR')
+            found = false;
+        end
+        
         % store properties
         if found
 
             % update count
             update_counter(tmpfile);
             
-            % read straightforward tags
-            TE(j) = head.EchoTime;
+            % read tags for sorting / checking
+            if isempty(head.EchoTime)
+                TE(j) = -1;
+            else
+                TE(j) = head.EchoTime;
+            end
             SL(j) = head.SliceLocation;
             FA(j) = head.FlipAngle;
             TR(j) = head.RepetitionTime;
             IN(j) = head.InstanceNumber;
-            AN(j) = head.AcquisitionNumber;
-            SN(j) = head.SeriesNumber;
+            NEX(j)= head.AcquisitionNumber;
             LF(j) = head.ImagingFrequency;
+            
+            %SN(j) = head.SeriesNumber;
+            SE{j} = head.SeriesInstanceUID;
+            ST{j} = head.StudyInstanceUID;
             
             % real/imag flags: 0=mag 1=phase 2=real 3=imag 
             RI(j) = 0; % default if no tag is present
@@ -119,8 +125,18 @@ parfor j = 1:numel(info) % if there is an error here, change parfor to for
                 RI(j) = head.Private_0043_102f(1);
             end
             if isfield(head,'Private_0051_1016') % Siemens
-                % NEEDS CHECKING FOR R/I - MAY BE I/Q ?
-                RI(j) = strfind('MPRI',upper(head.Private_0051_1016(1)))-1;
+                % look for 'P' or an 'M' (phase/mag)
+                if ismember('M',head.Private_0051_1016)
+                    RI(j) = 0;
+                elseif ismember('P',head.Private_0051_1016)
+                    RI(j) = 1;
+                elseif ismember('R',head.Private_0051_1016)
+                    RI(j) = 2;
+                elseif ismember('I',head.Private_0051_1016)
+                    RI(j) = 3;
+                else
+                    error('RI handling not working... test me!');
+                end
             end
 
             % inversion tag not always present
@@ -156,15 +172,7 @@ delete(tmpfile);
 % check for empty
 if ~exist('data')
     data = [];
-    TE = [];
-    SL = [];
-    FA = [];
-    TR = [];
-    TI = [];
-    BV = [];
-    LF = [];
-    SN = [];
-    AN = [];
+    params = [];
     dcm = [];
     return;
 end
@@ -173,7 +181,7 @@ end
 index = find(~cellfun('isempty',data));
 count = numel(index);
 
-% parfor counter increments in multiples of ncpu, trim excess
+% counter increments in multiples of ncpu, trim excess
 if isfinite(maxno)
     count = maxno;
     index = index(1:maxno);
@@ -182,14 +190,17 @@ end
 % parfor counter is flaky so re-display actual count
 disp(sprintf('\b\b\b\b\b%-4d',count));
 
-% convert cell arrays to matrices
+% check image dims are compatible - cannot solve this
 [nx ny] = size(data{index(1)});
 for j = 1:count
-    temp = size(data{index(j)});
-    if any(temp - [nx ny])
-        error('size mis-match %i (expecting %ix%i found %ix%i)',j,nx,ny,temp(1),temp(2));
+    sz = size(data{index(j)});
+    if ~isequal(sz,[nx ny])
+        warning('size mis-match image %i (expecting %ix%i found %ix%i)',j,[nx ny],sz);
+        keyboard
     end
 end
+
+% convert cell arrays to matrices
 dcm = dcm(index);
 data = data(index);
 data = cell2mat(data);
@@ -200,56 +211,88 @@ SL = SL(index); % slice location
 FA = FA(index); % flip angle
 TR = TR(index); % repetition time
 IN = IN(index); % instance number
-SN = SN(index); % series number
+%SN = SN(index); % series number
+SE = SE(index); % series uid
+ST = ST(index); % study number
 RI = RI(index); % rawdata type (real/imag)
 LF = LF(index); % larmor freq
-AN = AN(index); % acquisition no. (repetitions)
+NEX = NEX(index); % no. excitations (averages)
 if exist('TI','var'); TI = TI(index); else TI = []; end % inversion time
 if exist('BV','var'); BV = BV(index); else BV = []; end % bvalue 
+
+% can't handle mixture of studies
+if numel(unique(ST)) > 1
+    error('More than one study UID present - cannot proceed. Try dicomsorter.');
+end
 
 % unique properties
 [uTE,~,kte] = unique(TE);
 [uSL,~,ksl] = unique(round(SL*1e3)/1e3); % round floats (sometimes values have jitter)
 [uFA,~,kfa] = unique(FA);
 [uTR,~,ktr] = unique(TR);
-[uSN,~,ksn] = unique(SN);
+%[uSN,~,ksn] = unique(SN);
+[uSE,~,kse] = unique(SE);
 [uTI,~,kti] = unique(TI);
 [uBV,~,kbv] = unique(BV);
 [uRI,~,kri] = unique(RI);
 [uLF,~,klr] = unique(round(LF*1e3)/1e3); % round floats (sometimes values have jitter)
-[uAN,~,kan] = unique(AN);
+[uNEX,~,knex] = unique(NEX);
 
 nTE = numel(uTE);
 nSL = numel(uSL);
 nFA = numel(uFA);
 nTR = numel(uTR);
-nSN = numel(uSN);
+%nSN = numel(uSN);
+nSE = numel(uSE);
 nTI = numel(uTI);
 nBV = numel(uBV);
 nRI = numel(uRI);
+nNEX = numel(uNEX);
 nLF = numel(uLF);
-nAN = numel(uAN);
 if nTI==0; nTI = 1;	kti = ones(count,1); end
 if nBV==0; nBV = 1;	kbv = ones(count,1); end
 if nLF~=1; error('More than one field strength present!'); end
-if nAN>1 && nSN==1 % this handles the case where we vary parameters over the repetition loop
-    disp([mfilename '(): Detected ' num2str(nAN) ' repetitions in 1 series. Combining into 1 repetition.'])    
-    nAN = 1;
-    kan = ones(size(kan));
+
+% try to be intelligent about multiple series
+if isa(token,'numeric') && ~isempty(token)
+    ignore_SERIES = false;
+else
+    ignore_SERIES = true;
 end
-if ignore_SN && nSN>1
-    disp([mfilename '(): Combining ' num2str(nSN) ' different series. Specify SeriesNumber to avoid this.'])
-    for j = 1:nSN
-        disp(['  ' num2str(uSN(j)) '  ' dcm{j}.SeriesDescription])
+
+% Siemens stores mag/phase in consecutive series
+if ~isempty(strfind(dcm{1}.Manufacturer,'SIEMENS')) && nRI>1
+    ignore_SERIES = true;
+end
+
+if ignore_SERIES && nSE>1
+    disp([mfilename '(): Combining ' num2str(nSE) ' series. Specify SeriesNumber to avoid this.'])
+    [~,k] = unique(kse);
+    for j = 1:nSE
+        disp(['  ' num2str(j) '  ' dcm{k(j)}.SeriesDescription])
     end
-    nSN = 1;
-    uSN = 1;
-    ksn = ones(size(ksn));
+    nSE = 1;
+    uSE = 1;
+    kse(:) = 1;
 end
 
-% catch size errors
-expected_count = nTE*nSL*nFA*nTR*nTI*nBV*nRI*nSN*nAN;
+% check some dicom tags
+% tag = {'StudyInstanceUID' 'SeriesInstanceUID'};
+% for j = 1:numel(dcm)
+%     error_found = 0;
+%     for k = 1:numel(tag)
+%         if ~isequal(getfield(dcm{1},tag{k}),getfield(dcm{j},tag{k}))
+%             fprintf('DICOM tag mismatch (%s)\n',tag{k});
+%             fprintf('tag1\n'); disp(getfield(dcm{1},tag{k}));
+%             fprintf('tag2\n'); disp(getfield(dcm{j},tag{k}));
+%             error_found = 1; break;
+%         end
+%         if error_found; break; end
+%     end
+% end
 
+% error checks
+expected_count = nTE*nSL*nFA*nTR*nTI*nBV*nRI*nSE*nNEX;
 if count~=expected_count
     warning('%s() wrong number of images (found %i but expecting %i)',mfilename,count,expected_count)
     disp(['CHECK THESE!! echos=' num2str(nTE) ...
@@ -258,66 +301,72 @@ if count~=expected_count
         ' TRs=' num2str(nTR) ...
         ' TIs=' num2str(nTI) ...
         ' Bs=' num2str(nBV) ...
-        ' series=' num2str(nSN) ' (ignore=' num2str(ignore_SN) ')'...
+        ' series=' num2str(nSE) ' (ignore=' num2str(ignore_SERIES) ')'...
         ' real/imag=' num2str(nRI) ... 
-        ' aquisitions=' num2str(nAN)])
+        ' averages=' num2str(nNEX)])
     disp('Type "return" to ignore (expect errors!) or dbquit to cancel.')
-    keyboard
+keyboard
 end
 
 % sort by property
-temp = zeros(nx,ny,nSL,nTE,nFA,nTR,nTI,nBV,nSN,nRI,nAN,'single');
-dcmtemp = cell(nSL,nTE,nFA,nTR,nTI,nBV,nSN,nRI,nAN);
+temp = zeros(nx,ny,nSL,nTE,nFA,nTR,nTI,nBV,nSE,nRI,nNEX,'single');
+dcmtemp = cell(nSL,nTE,nFA,nTR,nTI,nBV,nSE,nRI,nNEX);
 mask = zeros(size(dcmtemp)); % for debugging - counts the no. of images in each slot
 for j = 1:count
-    temp(:,:,ksl(j),kte(j),kfa(j),ktr(j),kti(j),kbv(j),ksn(j),kri(j),kan(j)) = data(:,:,j);
-    dcmtemp(ksl(j),kte(j),kfa(j),ktr(j),kti(j),kbv(j),ksn(j),kri(j),kan(j)) = dcm(j);
-    mask(ksl(j),kte(j),kfa(j),ktr(j),kti(j),kbv(j),ksn(j),kri(j),kan(j)) = ...
-        mask(ksl(j),kte(j),kfa(j),ktr(j),kti(j),kbv(j),ksn(j),kri(j),kan(j))+1;
+    temp(:,:,ksl(j),kte(j),kfa(j),ktr(j),kti(j),kbv(j),kse(j),kri(j),knex(j)) = data(:,:,j);
+    dcmtemp(ksl(j),kte(j),kfa(j),ktr(j),kti(j),kbv(j),kse(j),kri(j),knex(j)) = dcm(j);
+    mask(ksl(j),kte(j),kfa(j),ktr(j),kti(j),kbv(j),kse(j),kri(j),knex(j)) = ...
+        mask(ksl(j),kte(j),kfa(j),ktr(j),kti(j),kbv(j),kse(j),kri(j),knex(j))+1;
 end
-data = temp;
-dcm = dcmtemp;
-TE = uTE;
-SL = uSL;
-FA = uFA;
-TE = uTE;
-TR = uTR;
-SN = uSN;
-BV = uBV;
-LF = uLF;
-AN = uAN;
-if any(mask~=1)
-    disp('Something is wrong... duplicates or missing data - need to check')
+if nnz(mask~=1)
+    disp('Something is wrong... duplicates or missing images - need to check')
     keyboard
 end
-clear temp dcmtemp mask;
+
+% properties to return
+data = temp;
+dcm = dcmtemp;
+params.te = uTE * 1e-3; % seconds
+params.sl = uSL;
+params.fa = uFA;
+params.tr = uTR;
+params.se = uSE;
+params.ti = uTI;
+params.B = uBV;
+params.Tesla = uLF / 42.57747892;
+params.nex= uNEX;
+params.dcm = dcm{1};
+
+clear temp dcmtemp mask
 
 %% handle real/imag/mag/phase (not perfect)
 
 % scale phase from int into float range (0 to 2pi)
-if isequal(dcm{1}.Manufacturer,'SIEMENS')
+if strfind(dcm{1}.Manufacturer,'SIEMENS')
     phase_scale = single(2*pi/4095);
-elseif isequal(dcm{1}.Manufacturer,'GE')
+elseif strfind(dcm{1}.Manufacturer,'GE')
     phase_scale = single(2*pi/1000);
 else
-    phase_scale = 1;
     if any(uRI==1)
         warning('get-dicom() phase_scale not defined for phase images')
     end
+    phase_scale = 1;
 end
 
-if nRI==1
+if isequal(uRI,1)
     % 1=phase
-    if isequal(uRI,1); data = data*phase_scale-pi; end
-elseif nRI==2 & isequal(uRI,[0 1])
+    data = data*phase_scale-pi;
+elseif isequal(uRI,0) || nRI==1
+    % 0,2,3=mag, real or imag (nothing to do)
+elseif isequal(uRI,[0 1])
     % 0=mag and 1=phase
-    data = data(:,:,:,:,:,:,:,:,:,1).*exp(i*(data(:,:,:,:,:,:,:,:,:,2)*phase_scale-pi));
-elseif nRI==2 & isequal(uRI,[2 3])
+    data = data(:,:,:,:,:,:,:,:,:,1,:).*exp(i*(data(:,:,:,:,:,:,:,:,:,2,:)*phase_scale-pi));
+elseif isequal(uRI,[2 3])
     % 2=real and 3=imag
-    data = complex(data(:,:,:,:,:,:,:,:,:,1),data(:,:,:,:,:,:,:,:,:,2));
-elseif nRI==4 & isequal(uRI,[0 1 2 3])
+    data = complex(data(:,:,:,:,:,:,:,:,:,1,:),data(:,:,:,:,:,:,:,:,:,2,:));
+elseif isequal(uRI,[0 1 2 3])
     % ignore mag/phase (less reliable than real/imag)
-    data = complex(data(:,:,:,:,:,:,:,:,:,3),data(:,:,:,:,:,:,:,:,:,4));
+    data = complex(data(:,:,:,:,:,:,:,:,:,3,:),data(:,:,:,:,:,:,:,:,:,4,:));
     disp([mfilename '(): real/imag/mag/phase present - returning real/imag'])
 else
     disp([mfilename '(): not sure about real/imag/phase/mag - need to handle this'])
