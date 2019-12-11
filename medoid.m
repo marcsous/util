@@ -1,12 +1,14 @@
-function y = medoid(x,dim)
-%%
-% Calculates medoid along the specified dimension.
+function y = medoid(x,dim,nanflag)
+%y = medoid(x,dim)
+%
+% Calculates medoid along a specified dimension.
 %
 %    MIN { SUM_i |y - x_i| } for y in x
 %
 % The medoid is similar to the median but always
-% returns an element of x. It is also well-defined
+% returns an element of x. It's also well defined
 % for complex arguments, unlike the median.
+%
 %%
 
 szx = size(x);
@@ -15,21 +17,29 @@ szx = size(x);
 if any(szx==0)
     error(' medoid: x cannot be an empty matrix');
 end
-if numel(szx)>5
-    error(' medoid: only supported upto 5 dimensions');
-end
 if nargin<2
     [~,dim] = max(szx>1);
 else
     validateattributes(dim,{'numeric'},{'positive','scalar','integer'},'','dim');
     if dim>numel(szx); y = x; return; end
 end
+if nargin<3 || isequal(nanflag,'includenan')
+    omitnan = false;
+elseif isequal(nanflag,'omitnan')
+    omitnan = true;
+else
+    error('nanflag option not recognized.');
+end
 
 % size of return argument
 szy = szx; szy(dim) = 1;
 
-% evaluate sum(|d|) for all y
-sumd = zeros(szx,class(x));
+% evaluate sum(|d|) for all y (brute force)
+if isa(x,'gpuArray')
+    sumd = zeros(szx,'gpuArray');
+else
+    sumd = zeros(szx);
+end
 
 for k = 2:szx(dim)
 
@@ -40,8 +50,12 @@ for k = 2:szx(dim)
         case 3; y = x(:,:,k-1,:,:); z = x(:,:,k:end,:,:);
         case 4; y = x(:,:,:,k-1,:); z = x(:,:,:,k:end,:);
         case 5; y = x(:,:,:,:,k-1); z = x(:,:,:,:,k:end);
+        otherwise; error('only supported up to 5 dimensions - fix me');
     end
     d = abs(bsxfun(@minus,y,z));
+    
+    % NaNs don't count to the sum
+    if omitnan; d(isnan(d)) = 0; end
 
     % accumulate sum
     switch dim
@@ -59,7 +73,10 @@ for k = 2:szx(dim)
 
 end
 
-% indices for min of sum(d)
+% reinsert NaNs so min can ignore them
+if omitnan; sumd(isnan(x)) = NaN; end
+
+% indices for min of sum(|d|)
 [~,index] = min(sumd,[],dim);
 
 % convert to subs and replace with index
@@ -74,7 +91,7 @@ switch dim
 end
 
 % convert subs back to indicies
-k = sub2ind(szx,s1,s2,s3,s4,s5);
+index = sub2ind(szx,s1,s2,s3,s4,s5);
 
 % return min elements
-y = reshape(x(k),szy);
+y = reshape(x(index),szy);
