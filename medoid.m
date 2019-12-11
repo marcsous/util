@@ -73,11 +73,11 @@ for k = 2:szx(dim)
 
 end
 
-% reinsert NaNs so min can ignore them
+% reinsert NaNs, min ignores them
 if omitnan; sumd(isnan(x)) = NaN; end
 
 % indices for min of sum(|d|)
-[~,index] = min(sumd,[],dim);
+[d index] = min(sumd,[],dim);
 
 % convert to subs and replace with index
 [s1 s2 s3 s4 s5] = ind2sub(szy,1:prod(szy));
@@ -95,3 +95,6 @@ index = sub2ind(szx,s1,s2,s3,s4,s5);
 
 % return min elements
 y = reshape(x(index),szy);
+
+% reinsert NaNs, min ignored them
+if ~omitnan; y(isnan(d)) = NaN; end
