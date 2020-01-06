@@ -121,9 +121,9 @@ if nargout>2
     
     % matlab compatiblity
     resvec = reshape(resvec,[],1);
-    relres = resvec(end)./delta0;
 
 end
+relres = resvec(end)./delta0;
 
 % only display if flag not supplied
 if nargout<2
