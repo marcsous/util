@@ -25,7 +25,7 @@ end
 % coefficients
 [LO_D HI_D] = wfilters(wname);
 
-% don't entertain oddball situations
+% don't entertain oddball cases
 if numel(LO_D)>n
     error('filter length (%i) > n is not supported',numel(LO_D));
 end
@@ -39,5 +39,5 @@ for k = 1:n/2
 end
 for k = 1+n/2:n
     D(k,1:numel(HI_D)) = flip(HI_D);
-    D(k,:) = circshift(D(k,:),[0 2*k-numel(LO_D)/2-1-n]);
+    D(k,:) = circshift(D(k,:),[0 2*k-numel(HI_D)/2-1]);
 end
