@@ -3,6 +3,7 @@ function D = dwtmtx(n,wname)
 %   DWTMTX(N) is the N-by-N matrix of values whose inner
 %   product with a column vector of length N yields the
 %   discrete wavelet transform of the vector.
+%
 %   If X is a column vector of length N, then DWTMTX(N)*X
 %   yields the same result as DWT(X); however, DWT(X) is
 %   more efficient.
