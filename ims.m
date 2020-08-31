@@ -6,6 +6,8 @@ function h = ims(im,CLIM,TITLE,TILING)
 %   [CLOW CHIGH] = same as in imagesc
 %   [0 1; NaN 100; ...] = individual ranges (NaN = no range)
 %
+%   Trickiness: if using FRAC, use sign to toggle colorbar  (negative=off)
+%
 % TITLE:
 %   {'plot1', 'plot2', ...}
 %
@@ -28,10 +30,17 @@ if exist('TITLE','var')
 else
     TITLE = '';
 end
+
+usecolorbar= true; % add colorbar
+
 if ~exist('CLIM','var')
     CLIM = 0.99; % default to 99% of range
 elseif numel(CLIM)==1
-    if CLIM<0 || CLIM>1
+    if CLIM<0
+        CLIM = -CLIM;        
+        usecolorbar = false;
+    end
+    if CLIM==0 || CLIM>1
         error('CLIM (scalar) must be between 0 and 1.');
     end
 elseif numel(CLIM)>=2
@@ -130,7 +139,7 @@ for i = 1:TILING(1)
         end
         set(gca,'XTickLabel','');
         set(gca,'YTickLabel','');
-        colorbar;
+        if usecolorbar; colorbar; end
 
         if ~isempty(TITLE)
             if size(TITLE,1)==1 % use same for all
