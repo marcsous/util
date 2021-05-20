@@ -23,15 +23,15 @@ function [x,flag,relres,iter,resvec] = pcgpc(A,b,tol,maxit,M1,M2,x0)
 
 % check arguments
 if nargin<2; error('Not enough input arguments.'); end
+if ~ismatrix(b); error('b argument must be a column vector or 2d array'); end
 if ~exist('tol') || isempty(tol); tol = 1e-6; end
-if ~exist('maxit') || isempty(maxit); maxit = 20; end
+if ~exist('maxit') || isempty(maxit); maxit = min(20,size(b,1)); end
 if ~exist('M1') || isempty(M1); M1 = @(arg) arg; end
 if exist('M2') && ~isempty(M2); error('M2 argument not supported'); end
-if ~ismatrix(b); error('b argument must be a column vector or 2d array'); end
 validateattributes(tol,{'numeric'},{'scalar','nonnegative','finite'},'','tol');
 validateattributes(maxit,{'numeric'},{'scalar','nonnegative','integer'},'','maxit');
 
-% not intended for matrix inputs but they can be supported
+% not intended for matrix inputs but they are supported
 if isnumeric(A); A = @(arg) A * arg; end
 if isnumeric(M1); M1 = @(arg) M1 \ arg; end
 
@@ -47,9 +47,16 @@ else
         error('x0 must have length %i to match the problem size.',size(b,1));
     end
     x = x0;
-    r = b - A(x);
+    r = A(x);   
+    if ~isequal(size(r),size(b))
+        error('A(x) must return a column vector of length %i to match the problem size.',numel(b));
+    end  
+    r = b - r;
 end
 d = M1(r);
+if ~isequal(size(d),size(b))
+    error('M1(x) must return a column vector of length %i to match the problem size.',numel(b));
+end
 delta0 = vecnorm(b);
 delta_new = real(dot(r,d));
 resvec(iter,:) = vecnorm(r);
@@ -111,11 +118,12 @@ while maxit
 end
 
 % min norm solution
-ok = imin==iter;
-if any(~ok)
-    flag = 3;
-    x(:,~ok) = xmin(:,~ok);
-end
+%ok = (imin==iter);
+%if any(~ok)
+%    flag = 3;
+%    x(:,~ok) = xmin(:,~ok);
+%end
+% return the last iteration instead of being smart
 
 % remeasure final residual
 if nargout>2
