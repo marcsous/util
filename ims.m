@@ -33,7 +33,7 @@ end
 
 usecolorbar= true; % add colorbar
 
-if ~exist('CLIM','var')
+if ~exist('CLIM','var') || isempty(CLIM)
     CLIM = 0.99; % default to 99% of range
 elseif numel(CLIM)==1
     if CLIM<0
@@ -43,9 +43,12 @@ elseif numel(CLIM)==1
     if CLIM==0 || CLIM>1
         error('CLIM (scalar) must be between 0 and 1.');
     end
-elseif numel(CLIM)>=2
-    if size(CLIM,2)~=2
-        error('CLIM must be [low high; ... ].')
+elseif numel(CLIM)>2
+    error('CLIM must be [low high; ... ].')
+else
+    if CLIM(2)<CLIM(1)
+        CLIM = -CLIM; % assume it's the -ve flag for colorbar
+        usecolorbar = false;
     end
 end
 if ~isreal(CLIM)
@@ -76,7 +79,7 @@ if exist('TILING','var')
     end
 else
     % catch likely error (too many images!)
-    nmax = 12;
+    nmax = 16;
     if n>nmax
         mid = round(n/2-nmax/2);
         %warning('too many images (%i)... showing slices %i-%i only.',n,mid,mid+nmax)
@@ -146,7 +149,9 @@ for i = 1:TILING(1)
                 title(TITLE(1,:),'FontSize',10)
             else
                 if k<=size(TITLE,1) % individual titles
-                    title(TITLE(k,:),'FontSize',10)
+                    if ~isequal(TITLE(k,:),'NaN')
+                        title(TITLE(k,:),'FontSize',10);
+                    end
                 end
             end
         else
@@ -158,7 +163,7 @@ for i = 1:TILING(1)
 end
 
 % if extra space on the subplot, put focus on "next" one
-if k<=TILING(1)*TILING(2) && n>1
+if k<TILING(1)*TILING(2) && n>1
     h(k) = subplot(TILING(1),TILING(2),k);
     axis off;
 end
