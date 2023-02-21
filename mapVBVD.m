@@ -11,12 +11,16 @@ function [raw param ref hdr] = mapVBVD(varargin)
 % Inputs:
 %  filename is a char array (e.g. 'myfile.dat')
 %
-%  varargin is one or more options (char array)
+%  varargin is one or more options (char)
 %  'removeOS'/'~removeOS'
 %  'doAverage'/'~doAverage'
 %  'ignoreSeg'/'~ignoreSeg'
 %  'mergeRef'/'~mergeRef'
 %  'noiseAdj'/`~noiseAdj'
+
+%% tricky! original mapVBVD function stored in subdirectory mapVBVD/
+addpath(mfilename('fullpath'));
+%% tricky! this will be removed at the end of the file 
 
 %% always have a return argument
 raw = [];
@@ -28,11 +32,11 @@ param = [];
 if nargin==0
     filename = '';
 else
-    if isequal(varargin{1},'removeOS')  || isequal(varargin{1},'~removeOS')  || ...
-       isequal(varargin{1},'doAverage') || isequal(varargin{1},'~doAverage') || ...
-       isequal(varargin{1},'ignoreSeg') || isequal(varargin{1},'~ignoreSeg') || ...
-       isequal(varargin{1},'mergeRef')  || isequal(varargin{1},'~mergeRef')  || ...
-       isequal(varargin{1},'noiseAdj')  || isequal(varargin{1},'~noiseAdj')
+    if contains(lower(varargin{1}),'removeos')  || ...
+       contains(lower(varargin{1}),'doaverage') || ...
+       contains(lower(varargin{1}),'ignoreseg') || ...
+       contains(lower(varargin{1}),'mergeref')  || ...
+       contains(lower(varargin{1}),'noiseadj')
         filename = '';
     else
         filename = varargin{1};
@@ -41,11 +45,12 @@ else
 end
 
 % if filename is a directory
-if isdir(filename)
+if isdir(filename) && ~contains(filename,'.dat')
     pathname = strcat(filename,filesep);
     filename = '';
-elseif ~isempty(filename) && ~exist(filename,'file')
-    error('File "%s" does not exist.',filename)
+elseif ~isempty(filename)
+    if ~contains(filename,'dat'); filename = strcat(filename,'.dat'); end
+    if ~exist(filename,'file'); error('File "%s" does not exist.',filename); end
 else
     pathname = '';
 end
@@ -61,35 +66,49 @@ if isempty(filename)
 end
 
 %% handle local options
-idx = strcmp(varargin,'~mergeRef') | strcmp(varargin,'~MergeRef');
-mergeRef = ~any(idx); % default is to mergeRef
-varargin = varargin(~idx);
 
-idx = strcmp(varargin,'~noiseAdj') | strcmp(varargin,'~NoiseAdj');
-noiseAdj = ~any(idx); % default is to noiseAdj
-varargin = varargin(~idx);
+mergeRef = true; % default
+idx = strcmp(lower(varargin),'~mergeref');
+if any(idx)
+    mergeRef = false;
+else
+    idx = strcmp(lower(varargin),'mergeref');    
+    if any(idx); mergeRef = true; end
+end
+varargin = varargin(~idx); % remove from varargin
+
+noiseAdj = true; % default
+idx = strcmp(lower(varargin),'~noiseadj');
+if any(idx)
+    noiseAdj = false;
+else
+    idx = strcmp(lower(varargin),'noiseadj');    
+    if any(idx); noiseAdj = true; end
+end
+varargin = varargin(~idx); % remove from varargin
 
 %% handle options passed to original mapVBVD
 idx = strcmp(varargin,'~removeOS') | strcmp(varargin,'~removeos');
 if any(idx)
     varargin = varargin(~idx);
 else
-    varargin{end+1} = 'removeOS'; % default is to removeOS
+    varargin{end+1} = 'removeOS'; % default
 end
-removeOS = ~any(idx); % we use this locally
+removeOS = ~any(idx);
 
 idx = strcmp(varargin,'~doAverage') | strcmp(varargin,'~doAverage');
 if any(idx)
     varargin = varargin(~idx);
 else
-    varargin{end+1} = 'doAverage'; % default is to doAverage
+    varargin{end+1} = 'doAverage'; % default
 end
+doAverage = ~any(idx);
 
 idx = strcmp(varargin,'~ignoreSeg') | strcmp(varargin,'~ignoreSeg');
 if any(idx)
     varargin = varargin(~idx);
 else
-    varargin{end+1} = 'ignoreSeg'; % default is to ignoreSeg
+    varargin{end+1} = 'ignoreSeg'; % default
 end
 
 % remove any dupes
@@ -97,7 +116,7 @@ varargin = unique(varargin);
 
 %% show user the key
 
-fprintf('%s(''%s''\n',mfilename,filename);
+fprintf('%s(''%s'')\n',mfilename,filename);
 
 if nargout < 2
     disp( ['Order of raw data dimensions:'])
@@ -118,9 +137,6 @@ if nargout < 2
     disp( '  15) Idd')
     disp( '  16) Ide')
 end
-
-%% use mapVBVD function from Siemens IDEA Tools
-addpath(mfilename('fullpath')); % tricky! folder must have same name as mfile
 
 twix_obj = mapVBVD_original(filename,varargin{:});
 
@@ -201,15 +217,25 @@ if isfield(twix_obj,'refscan') && mergeRef
 end
 
 %% factor out noise correlation
-if isfield(twix_obj,'noise') && noiseAdj
+if noiseAdj && isfield(twix_obj,'noise')
     noise = twix_obj.noise.unsorted();
     % concantenate multiple noise scans
-    fprintf('Found %i noise scans.\n',size(noise,3));
+    fprintf('Found %i noise scan(s).\n',size(noise,3));
     noise = reshape(permute(noise,[1 3 2]),[],size(noise,2));
-    disp(['Noise std per coil: ' num2str(std(noise),' %.1e')]);
+    disp(['Noise std per coil (pre ): ' num2str(std(noise),' %.2e')]);
+    
+% sqrt(twix_obj.hdr.Meas.alDwellTime(1) * twix_obj.hdr.Meas.Averages)
+% twix_obj.hdr.Meas.Averages
+% twix_obj.hdr.Config.GlobalImageScaleFactor
+% twix_obj.hdr.Config.NoiseScaleFactor
+% twix_obj.hdr.Meas.GlobalImageScaleFactor
+% twix_obj.hdr.Meas.dOverallImageScaleCorrectionFactor
+% twix_obj.hdr.Meas.dOverallImageScaleFactor
+
     % noise correlation matrix
     [~,S,V] = svd(noise,'econ');
-    X = V * inv(S);% * V' * sqrt(size(noise,1));
+    X = V * pinv(S) * V';
+    X = X * sqrt(mean(diag(S).^2)); % preserve scaling
     for j = 1:numel(raw)/size(raw,1)/size(raw,2)
         raw(:,:,j) = raw(:,:,j) * X;
     end
@@ -220,56 +246,98 @@ if isfield(twix_obj,'noise') && noiseAdj
     end
     % correct the noise to check std is normalized
     noise = noise * X;
-    disp(['Noise std per coil: ' num2str(std(noise),' %.1e')]);
-end
+    disp(['Noise std per coil (post): ' num2str(std(noise),' %.2e')]);
+    end
 
 %% pad array to correct final size... work in progress
+ncols = size(raw,1); % actual no. readout points
+
 try
-    nx = hdr.Meas.NImageCols;
-    ny = hdr.Meas.NImageLins;
+    % how many similar-but-different variables do there have to be?!
+    nx = hdr.Meas.lBaseResolution; %NImageCols;
+    ny = hdr.Meas.PhaseEncodingLines; %NImageLins;
     ns = hdr.Meas.NSlc;
-
-    % oversamping by factor of 2
+    nc = size(raw,2); % coils
+    ne = size(raw,8); % echos
+    nr = size(raw,9); % repetitions (half echos)
+    
+    % assume oversamping by factor of 2 in x-direction
     if ~removeOS; nx = 2*nx; end
-
-    % not sure why nz is flakey
-    if isfield(hdr.Meas,'NImagePar')
-        nz = hdr.Meas.NImagePar;
-    else
+    
+    % not sure why nz is so flakey
+    try
         nz = hdr.Meas.NPar;
+    catch
+        nz = hdr.Meas.NImagePar;
     end
+
+    % oversampling factors
+    %ox = hdr.Meas.lBaseResolution / size(raw,1);
+    %oy = hdr.Meas.lPhaseEncodingLines / size(raw,3);
+    %oz = hdr.Meas.lPartitions / size(raw,4);
     
     padsize(1) = nx-size(raw,1);
     padsize(2) = 0; % coils
     padsize(3) = ny-size(raw,3);
     padsize(4) = nz-size(raw,4);
+    fprintf('Padsize [%s]\n',num2str(padsize));
     
+    % if "interpolation" or oversampling in phase directions we need more hacking here
     if any(padsize<0)
         padsize = max(padsize,0); % skip the offending dimension(s)
-        warning('Size mis-match padding final matrix - skipping.');
+        warning('Size mis-match padding final matrix - interpolation? parallel imaging? Ignore.');
     end
-    raw = padarray(raw,padsize,'pre');
     
-    % for bipolar readout directions - not well tested
+    % acceleration can leave odd dimension sizes...
+    %if hdr.Meas.lAccelFactPE > 1
+    %    ny = size(raw,3)+padsize(3); % final size
+    %    padsize(3) = mod(ny,hdr.Meas.lAccelFactPE);
+    %end
+    %if hdr.Meas.lAccelFact3D > 1
+    %    nz = size(raw,4)+padsize(4); % final size
+    %    padsize(4) = mod(nz,hdr.Meas.lAccelFact3D);
+    %end    
+    
+    raw = padarray(raw,padsize,'post'); % 'pre' sometimes...
+
+    % fix miscentering of bipolar partial echo readouts
     if padsize(1)
-        [~,nk] = size(raw);
-        for k = 1:nk
-            if twix_obj.image.IsReflected(k)
-                raw(:,k) = circshift(raw(:,k),-padsize(1));
-            end
+       
+        k = twix_obj.image.IsReflected;
+        if doAverage
+            k = k(twix_obj.image.Ave==1);
         end
+        
+        % seems IsReflected is in acqusition order (unsorted)?
+        k = reshape(k,ne,ns,ny,nz,[]); % acquisition order
+        k = permute(k,[3 4 2 1 5]); % same order as raw
+        k = reshape(k,[],1); % back to linearized
+        
+        % need to use this twix_obj.image.centerCol?
+
+        % this seems necessary with 3D data but not 2D...
+        raw(:,:,k) = circshift(raw(:,:,k),-padsize(1));
+        
     end
-    
+
 catch ME
     warning(ME.message)
 end
 
-rmpath('~/Documents/MATLAB/library/mapVBVD');
-
-
 %% return some helpful things
 param.te = hdr.Meas.alTE*1e-6; % seconds
 param.Tesla = hdr.Meas.flNominalB0; % Tesla
+param.tr = hdr.Meas.alTR(1)*1e-6; % seconds
+param.fa = hdr.Meas.FlipAngle; % degress
+param.ave = hdr.Meas.lAverages;
+param.dwell_us = double(hdr.Meas.alDwellTime(1)) / 1000; % us
+param.ncols = ncols; % no. freq encodes (partial echo)
+
+if exist('noise','var')
+    param.std = std(noise(:)); % std over all coils
+    if doAverage; param.std = param.std / sqrt(param.ave); end
+    param.noise = noise; % raw noise if caller wants to be more sophisticated
+end
 
 if isfield(hdr.Meas,'EchoTrainLength') && ~isempty(hdr.Meas.EchoTrainLength)
     param.te = param.te(1:hdr.Meas.EchoTrainLength);
@@ -277,3 +345,23 @@ else
     param.te = param.te(1:nnz(param.te)); % hope this works
 end
 
+if isfield(hdr.Meas,'NoOfBvalues')
+    param.Bvalues = hdr.Meas.alBValue(1:hdr.Meas.NoOfBvalues);
+    param.NoDiffusionDirections = hdr.Phoenix.sDiffusion.lDiffDirections;
+    param.NoDiffusionDirectionsOf1stBvalue = hdr.Meas.NoOfDirections4FirstBValue;   
+    param.Bvalues = hdr.Meas.alBValue(1:hdr.Meas.NoOfBvalues);   
+end
+
+disp(['TR/TE ' num2str([param.tr param.te]*1e3,'%.2f ') ' ms'])
+
+%% apply ICE scaling factor to put data in a slightly nicer range
+K_ICE_AMPL_SCALE_FACTOR = 3200;
+
+raw = raw * K_ICE_AMPL_SCALE_FACTOR;
+if exist('ref','var'); ref = ref * K_ICE_AMPL_SCALE_FACTOR; end
+if isfield(param,'std'); param.std = param.std * K_ICE_AMPL_SCALE_FACTOR; end
+if isfield(param,'noise'); param.noise = param.noise * K_ICE_AMPL_SCALE_FACTOR; end
+
+%% tricky (see top of file)
+rmpath(mfilename('fullpath'));
+%% tricky
