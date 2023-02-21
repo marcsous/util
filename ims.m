@@ -142,6 +142,7 @@ for i = 1:TILING(1)
         end
         set(gca,'XTickLabel','');
         set(gca,'YTickLabel','');
+        set(gca,'TickLength',[0 0]);
         if usecolorbar; colorbar; end
 
         if ~isempty(TITLE)
@@ -163,7 +164,7 @@ for i = 1:TILING(1)
 end
 
 % if extra space on the subplot, put focus on "next" one
-if k<TILING(1)*TILING(2) && n>1
+if k>n && k<=TILING(1)*TILING(2)
     h(k) = subplot(TILING(1),TILING(2),k);
     axis off;
 end
