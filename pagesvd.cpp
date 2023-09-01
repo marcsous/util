@@ -7,10 +7,10 @@
  *          [__] = pagesvd(X,'econ')
  *          [__] = pagesvd(__,outputForm)
  *
- *          outputForm can be 'matrix' or 'vector' [or 'trans' = same as 'matrix' but returns V' instead of V]
+ *          outputForm can be 'matrix' or 'vector' [or 'trans' = same as 'matrix' but returns V' not V]
  *
  * To compile:
- *      mex pagesvd.cpp -v -lmwlapack -R2018a
+ *          mex pagesvd.cpp -v -lmwlapack -R2018a
  */
 
 #include "mex.h"
@@ -22,9 +22,9 @@
 #include <cassert>
 #include <iostream>
 
-#if MX_HAS_INTERLEAVED_COMPLEX==0
+#if !MX_HAS_INTERLEAVED_COMPLEX
 #error "This MEX-file must be compiled with the -R2018a flag."
-#endif 
+#endif
 
 char* lower(char *buf);
 
@@ -86,47 +86,45 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
         }
     }
 
-    /* duplicate array (destroyed by lapack routine) */  
+    /* duplicate input array (overwritten by lapack routines) */  
     mxArray *a = mxDuplicateArray(prhs[0]);
     if (!a) mexErrMsgTxt("Insufficent memory (a).");
 
     /* check matrix */  
     mwSize ndim = mxGetNumberOfDimensions(a);
     const mwSize *adim = mxGetDimensions(a);
-    for (long i = 0; i < ndim; i++)
-        if (!adim[i]) mexErrMsgTxt("Empty matrix not supported.");
     
-    ptrdiff_t m = adim[0];
+    ptrdiff_t m = ndim>0 ? adim[0] : 1;
     ptrdiff_t n = ndim>1 ? adim[1] : 1;
     ptrdiff_t p = ndim>2 ? adim[2] : 1;
-    for (long i = 3; i < ndim; i++) p *= adim[i];
+    for (long i = 3; i < ndim; i++) p *= adim[i]; /* stack all higher dimensions */
     
     ptrdiff_t mn = std::min(m,n);
     ptrdiff_t mx = std::max(m,n);
 
-    /* code below assumes ptrdiff_t* can be cast to size_t* */
-    assert(("Need to correct size_t/ptrdiff_t",sizeof(ptrdiff_t)!=sizeof(size_t)));
-    
-    /* output arrays */
-    ptrdiff_t sdim[3] = {m,n,p};
+    /* output arrays: s, u, v */   
+    ptrdiff_t sdim[3] = {m,n,p}; 
     if (jobz=='S' || jobz=='N') sdim[0] = sdim[1] = mn;
     if (outputForm=='V') sdim[1] = 1;
-    mxArray *s = mxCreateNumericArray(3, (size_t*)sdim, mxGetClassID(a), mxREAL); // init with zeros
-     
+
     ptrdiff_t udim[3] = {m,m,p};
     if (jobz=='S') udim[1] = mn;
     if (jobz=='N') udim[0] = udim[1] = 1;
-    mxArray *u = mxCreateUninitNumericArray(3, (size_t*)udim, mxGetClassID(a), mxIsComplex(a) ? mxCOMPLEX : mxREAL);
 
     ptrdiff_t vdim[3] = {n,n,p};
     if (jobz=='S') vdim[0] = mn;
     if (jobz=='N') vdim[0] = vdim[1] = 1;
-    mxArray *v = mxCreateUninitNumericArray(3, (size_t*)vdim, mxGetClassID(a), mxIsComplex(a) ? mxCOMPLEX : mxREAL);
     
-    if (!s || !u || !v) mexErrMsgTxt("Insufficent memory (s, u or v).");
+    mwSize xdim[std::max<mwSize>(ndim,3)]; /* for copying ptrdiff_t[] into mwSize[] */
+    mxArray *s = mxCreateNumericArray(3, std::copy_n(sdim,3,xdim)-3, mxGetClassID(a), mxREAL);    
+    mxArray *u = mxCreateNumericArray(3, std::copy_n(udim,3,xdim)-3, mxGetClassID(a), mxIsComplex(a) ? mxCOMPLEX : mxREAL);    
+    mxArray *v = mxCreateNumericArray(3, std::copy_n(vdim,3,xdim)-3, mxGetClassID(a), mxIsComplex(a) ? mxCOMPLEX : mxREAL);
+    
+    if (!s || !u || !v) mexErrMsgTxt("Insufficent memory (s, u, v).");
    
-/* run the loop in parallel on single cores */
+/* run in parallel on single cores */
 #pragma omp parallel
+if (m*n*p)
 { 
     /* workspace calculations */
     ptrdiff_t *iwork = (ptrdiff_t*)mxMalloc( 8 * mn * sizeof(ptrdiff_t) );
@@ -139,17 +137,17 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     
     if (!iwork || !rwork || !work) mexErrMsgTxt("Insufficent memory (work).");   
     
-    /* svd and transpose v */   
+    /* svd and ctranspose v */   
     #pragma omp for
     for (long i = 0; i < p; i++)
     {  
         ptrdiff_t info;
         
-        /* pointers to the i-th matrix */
-        void *a_i = mxGetData(a) + i * adim[0] * adim[1] * mxGetElementSize(a);
-        void *s_i = mxGetData(s) + i * sdim[0] * sdim[1] * mxGetElementSize(s);
-        void *u_i = mxGetData(u) + i * udim[0] * udim[1] * mxGetElementSize(u);
-        void *v_i = mxGetData(v) + i * vdim[0] * vdim[1] * mxGetElementSize(v);
+        /* pointers to the i-th matrix (use char* to suppress compiler warnings */
+        void *a_i = (char*)mxGetData(a) + i * adim[0] * adim[1] * mxGetElementSize(a);
+        void *s_i = (char*)mxGetData(s) + i * sdim[0] * sdim[1] * mxGetElementSize(s);
+        void *u_i = (char*)mxGetData(u) + i * udim[0] * udim[1] * mxGetElementSize(u);
+        void *v_i = (char*)mxGetData(v) + i * vdim[0] * vdim[1] * mxGetElementSize(v);
 
         // real float
         if(!mxIsComplex(a) && !mxIsDouble(a))
@@ -200,14 +198,13 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     
 } /* end of pragma omp parallel block */
 
-    /* reshape in case of multiple dimensions */
-    mwSize rdim[ndim];
-    std::copy(adim, adim+ndim, rdim);
+    /* reshape to match input */
+    std::copy_n(adim, ndim, xdim);
     if (trans==false) std::swap(vdim[0], vdim[1]);
-    rdim[0] = sdim[0]; rdim[1] = sdim[1]; mxSetDimensions(s, rdim, ndim);    
-    rdim[0] = udim[0]; rdim[1] = udim[1]; mxSetDimensions(u, rdim, ndim);
-    rdim[0] = vdim[0]; rdim[1] = vdim[1]; mxSetDimensions(v, rdim, ndim);
-    
+    xdim[0] = sdim[0]; xdim[1] = sdim[1]; mxSetDimensions(s, xdim, ndim);    
+    xdim[0] = udim[0]; xdim[1] = udim[1]; mxSetDimensions(u, xdim, ndim);
+    xdim[0] = vdim[0]; xdim[1] = vdim[1]; mxSetDimensions(v, xdim, ndim);
+
     if (nlhs > 2)
     {
         plhs[0] = u;
