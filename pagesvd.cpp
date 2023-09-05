@@ -126,6 +126,8 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 #pragma omp parallel
 if (m*n*p)
 { 
+     if (omp_get_num_threads() == 1) mexWarnMsgTxt("pagesvd threads equals 1. Try increasing maxNumCompThreads().");
+    
     /* workspace calculations */
     ptrdiff_t *iwork = (ptrdiff_t*)mxMalloc( 8 * mn * sizeof(ptrdiff_t) );
       
