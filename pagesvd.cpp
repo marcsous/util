@@ -122,12 +122,18 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     
     if (!s || !u || !v) mexErrMsgTxt("Insufficent memory (s, u, v).");
    
+    /* Get the number of threads from the Matlab engine (maxNumCompThreads) */
+    mxArray *matlabCallOut[1] = {0};
+    mxArray *matlabCallIn[1]  = {0};
+    mexCallMATLAB(1, matlabCallOut, 0, matlabCallIn, "maxNumCompThreads");
+    double *pthreads = mxGetPr(matlabCallOut[0]);
+    int nthreads = int(*pthreads);
+    if (nthreads == 1) mexWarnMsgTxt("pagesvd threads equals 1. Try increasing maxNumCompThreads().");
+    
 /* run in parallel on single cores */
-#pragma omp parallel
+#pragma omp parallel num_threads(nthreads)
 if (m*n*p)
 { 
-     if (omp_get_num_threads() == 1) mexWarnMsgTxt("pagesvd threads equals 1. Try increasing maxNumCompThreads().");
-    
     /* workspace calculations */
     ptrdiff_t *iwork = (ptrdiff_t*)mxMalloc( 8 * mn * sizeof(ptrdiff_t) );
       
