@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cassert>
 #include <iostream>
+#include <cstring>
 
 #if !MX_HAS_INTERLEAVED_COMPLEX
 #error "This MEX-file must be compiled with the -R2018a flag."
@@ -86,10 +87,9 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
         }
     }
 
-    /* duplicate input array (overwritten by lapack routines) */  
-    mxArray *a = mxDuplicateArray(prhs[0]);
-    if (!a) mexErrMsgTxt("Insufficent memory (a).");
-
+    /* pointer to input array */  
+    const mxArray *a = prhs[0];
+    
     /* check matrix */  
     mwSize ndim = mxGetNumberOfDimensions(a);
     const mwSize *adim = mxGetDimensions(a);
@@ -101,7 +101,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     
     ptrdiff_t mn = std::min(m,n);
     ptrdiff_t mx = std::max(m,n);
-
+    
     /* output arrays: s, u, v */   
     ptrdiff_t sdim[3] = {m,n,p}; 
     if (jobz=='S' || jobz=='N') sdim[0] = sdim[1] = mn;
@@ -130,6 +130,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     int nthreads = int(*pthreads);
     if (nthreads == 1) mexWarnMsgTxt("pagesvd threads equals 1. Try increasing maxNumCompThreads().");
     
+    
 /* run in parallel on single cores */
 #pragma omp parallel num_threads(nthreads)
 if (m*n*p)
@@ -143,19 +144,22 @@ if (m*n*p)
     ptrdiff_t lwork = std::max(mn*mn+2*mn+mx,4*mn*mn+6*mn+mx);
     void *work = (void*)mxMalloc( lwork * mxGetElementSize(a) );
     
-    if (!iwork || !rwork || !work) mexErrMsgTxt("Insufficent memory (work).");   
+    /* copy of i-th matrix of a (lapack overwrites) */
+    void *a_i = (void*)mxMalloc( m * n * mxGetElementSize(a) );
     
-    /* svd and ctranspose v */   
-    #pragma omp for
+    if (!iwork || !rwork || !work || !a_i) mexErrMsgTxt("Insufficent memory (work).");   
+    
+    /* svd and transpose v */   
+    #pragma omp for schedule(static,1)
     for (long i = 0; i < p; i++)
     {  
-        ptrdiff_t info;
+        ptrdiff_t info = -1;
         
-        /* pointers to the i-th matrix (use char* to suppress compiler warnings */
-        void *a_i = (char*)mxGetData(a) + i * adim[0] * adim[1] * mxGetElementSize(a);
+        /* point to the i-th matrix (use char* for bytes) */
         void *s_i = (char*)mxGetData(s) + i * sdim[0] * sdim[1] * mxGetElementSize(s);
         void *u_i = (char*)mxGetData(u) + i * udim[0] * udim[1] * mxGetElementSize(u);
         void *v_i = (char*)mxGetData(v) + i * vdim[0] * vdim[1] * mxGetElementSize(v);
+        std::memcpy(a_i, (char*)mxGetData(a) + i * m * n * mxGetElementSize(a), m * n * mxGetElementSize(a));
 
         // real float
         if(!mxIsComplex(a) && !mxIsDouble(a))
@@ -200,12 +204,14 @@ if (m*n*p)
     
     } /* end of pragma omp for loop */
     
+    mxFree(a_i);   
     mxFree(work);
     mxFree(iwork);
     mxFree(rwork);
     
 } /* end of pragma omp parallel block */
 
+    
     /* reshape to match input */
     std::copy_n(adim, ndim, xdim);
     if (trans==false) std::swap(vdim[0], vdim[1]);
@@ -231,8 +237,6 @@ if (m*n*p)
         mxDestroyArray(u);
         mxDestroyArray(v);
     }
-    
-    mxDestroyArray(a);
 }
       
 
