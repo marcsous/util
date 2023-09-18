@@ -16,12 +16,10 @@
 #include "mex.h"
 #include "lapack.h"
 #include <complex>
-#include <string.h>
+#include <cstring>
 #include <omp.h>
 #include <algorithm>
-#include <cassert>
 #include <iostream>
-#include <cstring>
 
 #if !MX_HAS_INTERLEAVED_COMPLEX
 #error "This MEX-file must be compiled with the -R2018a flag."
@@ -30,13 +28,13 @@
 char* lower(char *buf);
 
 template <typename T>
-inline void transpose(T *A, long m, long n);
+inline void transpose(T *A, int m, int n);
 
 template <typename T>
-inline void conjugate(T *A, long m, long n);
+inline void conjugate(T *A, int m, int n);
 
 template <typename T>
-inline void shift_rows(T *S, long m, long n);
+inline void shift_rows(T *S, int m, int n);
 
 void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 {
@@ -97,10 +95,10 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     ptrdiff_t m = ndim>0 ? adim[0] : 1;
     ptrdiff_t n = ndim>1 ? adim[1] : 1;
     ptrdiff_t p = ndim>2 ? adim[2] : 1;
-    for (long i = 3; i < ndim; i++) p *= adim[i]; /* stack all higher dimensions */
+    for (int i = 3; i < ndim; i++) p *= adim[i]; /* stack all higher dimensions */
     
-    ptrdiff_t mn = std::min(m,n);
-    ptrdiff_t mx = std::max(m,n);
+    ptrdiff_t mn = std::min(m, n);
+    ptrdiff_t mx = std::max(m, n);
     
     /* output arrays: s, u, v */   
     ptrdiff_t sdim[3] = {m,n,p}; 
@@ -122,7 +120,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     
     if (!s || !u || !v) mexErrMsgTxt("Insufficent memory (s, u, v).");
    
-    /* Get the number of threads from the Matlab engine (maxNumCompThreads) */
+    /* get number of threads from Matlab (maxNumCompThreads) */
     mxArray *matlabCallOut[1] = {0};
     mxArray *matlabCallIn[1]  = {0};
     mexCallMATLAB(1, matlabCallOut, 0, matlabCallIn, "maxNumCompThreads");
@@ -131,27 +129,27 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     if (nthreads == 1) mexWarnMsgTxt("pagesvd threads equals 1. Try increasing maxNumCompThreads().");
     
     
-/* run in parallel on single cores */
+/* run in parallel on single threads */
 #pragma omp parallel num_threads(nthreads)
 if (m*n*p)
 { 
     /* workspace calculations */
     ptrdiff_t *iwork = (ptrdiff_t*)mxMalloc( 8 * mn * sizeof(ptrdiff_t) );
       
-    ptrdiff_t sz = std::max(5*mn*mn+5*mn,2*mx*mn+2*mn*mn+mn);
-    void *rwork = (void*)mxMalloc( sz * mxGetElementSize(a) );
+    ptrdiff_t sz = std::max(5*mn*mn+5*mn, 2*mx*mn+2*mn*mn+mn);
+    void *rwork = (void*)mxMalloc( sz * mxGetElementSize(s) );
     
-    ptrdiff_t lwork = std::max(mn*mn+2*mn+mx,4*mn*mn+6*mn+mx);
+    ptrdiff_t lwork = std::max(mn*mn+2*mn+mx, 4*mn*mn+6*mn+mx);
     void *work = (void*)mxMalloc( lwork * mxGetElementSize(a) );
     
-    /* copy of i-th matrix of a (lapack overwrites) */
+    /* copy the i-th matrix of a (lapack overwrites) */
     void *a_i = (void*)mxMalloc( m * n * mxGetElementSize(a) );
     
     if (!iwork || !rwork || !work || !a_i) mexErrMsgTxt("Insufficent memory (work).");   
     
     /* svd and transpose v */   
     #pragma omp for schedule(static,1)
-    for (long i = 0; i < p; i++)
+    for (int i = 0; i < p; i++)
     {  
         ptrdiff_t info = -1;
         
@@ -213,8 +211,9 @@ if (m*n*p)
 
     
     /* reshape to match input */
-    std::copy_n(adim, ndim, xdim);
     if (trans==false) std::swap(vdim[0], vdim[1]);
+    
+    std::copy_n(adim, ndim, xdim);
     xdim[0] = sdim[0]; xdim[1] = sdim[1]; mxSetDimensions(s, xdim, ndim);    
     xdim[0] = udim[0]; xdim[1] = udim[1]; mxSetDimensions(u, xdim, ndim);
     xdim[0] = vdim[0]; xdim[1] = vdim[1]; mxSetDimensions(v, xdim, ndim);
@@ -243,7 +242,7 @@ if (m*n*p)
 // In-place convert to lowercase
 char* lower(char *buf)
 {
-    for (long i = 0; buf[i]; i++)
+    for (int i = 0; buf[i]; i++)
         buf[i] = std::tolower(buf[i]);
     
     return buf;
@@ -252,31 +251,31 @@ char* lower(char *buf)
 
 // In-place complex conjugate
 template<typename T>
-inline void conjugate(T *A, long m, long n)
+inline void conjugate(T *A, int m, int n)
 {
-    for (long i = 0; i < m*m; i++)
+    for (int i = 0; i < m*n; i++)
         A[i].imag(-A[i].imag());
 }
 
 
 // In-place matrix shift
 template <typename T>
-inline void shift_rows(T *S, long m, long n)
+inline void shift_rows(T *S, int m, int n)
 {
-    for (long i = 1; i < std::min(m,n); i++)
+    for (int i = 1; i < std::min(m, n); i++)
         std::swap(S[i], S[i+m*i]);
 }
 
 
 // In-place matrix transpose
 template<typename T>
-inline void transpose(T *A, long m, long n)
+inline void transpose(T *A, int m, int n)
 {
     if (m < n) std::swap(m, n);
 
     while (m > 1 && n > 1)
     {
-        for (long i = 1; i < m; i++)
+        for (int i = 1; i < m; i++)
             std::rotate(A+i, A+i*n, A+i*n+1);
         
         A += m;
