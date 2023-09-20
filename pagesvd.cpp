@@ -28,8 +28,6 @@
 #error "This MEX-file must be compiled with the -R2018a flag."
 #endif
 
-char* lower(char *buf);
-
 template <typename T>
 inline void transpose(T *A, int m, int n);
 
@@ -53,37 +51,33 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     
     if (nrhs>1)
     {
-        char buf[8];
-        if (mxGetString(prhs[1],buf,5)==0 && strncmp(lower(buf),"econ",5)==0)
-        {
-            if (nlhs > 1) jobz = 'S';
-        }
-        else if (mxGetString(prhs[1],buf,7)==0 && strncmp(lower(buf),"vector",7)==0)
+        char str[8]; // max arg length 6 + '\0'
+        mxGetString(prhs[1], str, sizeof(str));
+        
+        if (strcasecmp(str,"econ")==0)
+            jobz = (nlhs > 1) ? 'S' : jobz;
+        else if (strcasecmp(str,"vector")==0)
             outputForm = 'V';
-        else if (mxGetString(prhs[1],buf,7)==0 && strncmp(lower(buf),"matrix",7)==0)
+        else if (strcasecmp(str,"matrix")==0)
             outputForm = 'M';      
-        else if (mxGetString(prhs[1],buf,6)==0 && strncmp(lower(buf),"trans",6)==0)
-        {
-            trans = true;
-            outputForm = 'M';
-        }
+        else if (strcasecmp(str,"trans")==0)
+            trans = outputForm = 'M';
         else
-            mexErrMsgTxt("Second input argument must be 'econ', vector' or 'matrix'.");
+            mexErrMsgTxt("Second input argument must be 'econ', 'vector' or 'matrix'.");
         
         if (nrhs>2)
         {
-            if (mxGetString(prhs[2],buf,7)==0 && strncmp(lower(buf),"vector",7)==0)
+            mxGetString(prhs[2], str, sizeof(str));
+            
+            if (strcasecmp(str,"vector")==0)
                 outputForm = 'V';
-            else if (mxGetString(prhs[2],buf,7)==0 && strncmp(lower(buf),"matrix",7)==0)
+            else if (strcasecmp(str,"matrix")==0)
                 outputForm = 'M';       
-            else if (mxGetString(prhs[2],buf,6)==0 && strncmp(lower(buf),"trans",6)==0)
-            {
-                trans = true;
-                outputForm = 'M';
-            }
+            else if (strcasecmp(str,"trans")==0)
+                trans = outputForm = 'M';
             else
                 mexErrMsgTxt("Third input argument must be 'matrix' or 'vector'.");
-
+            
             if (jobz=='A') mexErrMsgTxt("Cannot specify 'matrix' and 'vector'.");
         }
     }
@@ -131,7 +125,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     int nthreads = (int)mxGetScalar(mex_plhs[0]);
     if (nthreads == 1) mexWarnMsgTxt("pagesvd threads equals 1. Try increasing maxNumCompThreads.");
 
-    /* catch errors in omp block (mexErrMsgTxt crashes): on error, info stores matrix number */
+    /* catch errors in omp block (mexErrMsgTxt crashes). on error, info stores bad matrix index */
     volatile lapack_int info = 0;
 
 
@@ -197,7 +191,7 @@ if (m*n*p)
 } /* end of pragma omp parallel block */
 
 
-    /* now can throw error */
+    /* now can throw any errors */
     if (info)
     {
         std::string str = "LAPACKE_ gesdd() failed ";
@@ -206,7 +200,7 @@ if (m*n*p)
         if( mxIsComplex(a) && !mxIsDouble(a)) str.replace(8,1,"c");
         if( mxIsComplex(a) &&  mxIsDouble(a)) str.replace(8,1,"z");
         if (info == -1) str += "due to insufficient memory (a_i).";
-        else str += "on matrix " + std::to_string(info) + ".";
+        else str += "at matrix page " + std::to_string(info) + ".";
         mexErrMsgTxt(str.c_str());
     }
     
@@ -238,16 +232,6 @@ if (m*n*p)
     }
 }
       
-
-// In-place convert to lowercase
-char* lower(char *buf)
-{
-    for (int i = 0; buf[i]; i++)
-        buf[i] = std::tolower(buf[i]);
-    
-    return buf;
-}
-
 
 // In-place complex conjugate
 template<typename T>
