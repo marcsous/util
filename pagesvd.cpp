@@ -131,8 +131,8 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     int nthreads = (int)mxGetScalar(mex_plhs[0]);
     if (nthreads == 1) mexWarnMsgTxt("pagesvd threads equals 1. Try increasing maxNumCompThreads.");
 
-    /* catch bad exits from omp block (mexErrMsgTxt causes crash) */
-    volatile int bad_exit = 0;
+    /* catch errors in omp block (mexErrMsgTxt crashes): on error, info stores matrix number */
+    volatile lapack_int info = 0;
 
 
 /* run in parallel on single threads */
@@ -141,44 +141,39 @@ if (m*n*p)
 { 
     /* copy i-th matrix of a (lapack overwrites) */
     void *a_i = mxMalloc( m * n * mxGetElementSize(a) ); 
-    if (!a_i) bad_exit = -1; /* cannot exit omp block */
+    if (!a_i) info = -1; /* can't exit from omp block */
     
     /* svd and transpose v */   
     #pragma omp for schedule(static,1)
     for (int i = 0; i < p; i++)
     {  
         /* on error skip processing */
-        if (bad_exit) continue;
+        if (info) continue;
         
         /* point to the i-th matrix (use char* for bytes) */
         void *s_i = (char*)mxGetData(s) + i * sdims[0] * sdims[1] * mxGetElementSize(s);
         void *u_i = (char*)mxGetData(u) + i * udims[0] * udims[1] * mxGetElementSize(u);
         void *v_i = (char*)mxGetData(v) + i * vdims[0] * vdims[1] * mxGetElementSize(v);
         std::memcpy(a_i, (char*)mxGetData(a) + i * m * n * mxGetElementSize(a), m * n * mxGetElementSize(a));
-
-        lapack_int info;        
-        
+       
         // real float
         if(!mxIsComplex(a) && !mxIsDouble(a))
         {
-            info = LAPACKE_sgesdd(LAPACK_COL_MAJOR, jobz, m, n, (float*)a_i, adims[0], (float*)s_i, (float*)u_i, udims[0], (float*)v_i, vdims[0]);
-            
+            if (LAPACKE_sgesdd(LAPACK_COL_MAJOR, jobz, m, n, (float*)a_i, adims[0], (float*)s_i, (float*)u_i, udims[0], (float*)v_i, vdims[0])) info = i+1;
             if (trans==false) transpose((float*)v_i, vdims[0], vdims[1]);
             if (outputForm=='M') shift_rows((float*)s_i, sdims[0], sdims[1]);
         }
         // real double
         else if(!mxIsComplex(a) &&  mxIsDouble(a))
         {
-            info = LAPACKE_dgesdd(LAPACK_COL_MAJOR, jobz, m, n, (double*)a_i, adims[0], (double*)s_i, (double*)u_i, udims[0], (double*)v_i, vdims[0]);
-        
+            if (LAPACKE_dgesdd(LAPACK_COL_MAJOR, jobz, m, n, (double*)a_i, adims[0], (double*)s_i, (double*)u_i, udims[0], (double*)v_i, vdims[0])) info = i+1;
             if (trans==false) transpose((double*)v_i, vdims[0], vdims[1]);
             if (outputForm=='M') shift_rows((double*)s_i, sdims[0], sdims[1]);
         }   
         // complex float
         else if( mxIsComplex(a) && !mxIsDouble(a))
         {
-            info = LAPACKE_cgesdd(LAPACK_COL_MAJOR, jobz, m, n, (lapack_complex_float*)a_i, adims[0], (float*)s_i, (lapack_complex_float*)u_i, udims[0], (lapack_complex_float*)v_i, vdims[0]);
-
+            if (LAPACKE_cgesdd(LAPACK_COL_MAJOR, jobz, m, n, (lapack_complex_float*)a_i, adims[0], (float*)s_i, (lapack_complex_float*)u_i, udims[0], (lapack_complex_float*)v_i, vdims[0])) info = i+1;
             if (trans==false) transpose((lapack_complex_float*)v_i, vdims[0], vdims[1]);
             if (trans==false) conjugate((lapack_complex_float*)v_i, vdims[0], vdims[1]);   
             if (outputForm=='M') shift_rows((float*)s_i, sdims[0], sdims[1]);      
@@ -186,18 +181,14 @@ if (m*n*p)
         // complex double
         else if( mxIsComplex(a) &&  mxIsDouble(a))
         {
-            info = LAPACKE_zgesdd(LAPACK_COL_MAJOR, jobz, m, n, (lapack_complex_double*)a_i, adims[0], (double*)s_i, (lapack_complex_double*)u_i, udims[0], (lapack_complex_double*)v_i, vdims[0]);
-
+            if (LAPACKE_zgesdd(LAPACK_COL_MAJOR, jobz, m, n, (lapack_complex_double*)a_i, adims[0], (double*)s_i, (lapack_complex_double*)u_i, udims[0], (lapack_complex_double*)v_i, vdims[0])) info = i+1;
             if (trans==false) transpose((lapack_complex_double*)v_i, vdims[0], vdims[1]);
             if (trans==false) conjugate((lapack_complex_double*)v_i, vdims[0], vdims[1]);
             if (outputForm=='M') shift_rows((double*)s_i, sdims[0], sdims[1]);
         }
       
         /* lapack doesn't catch Inf but returns NaN singular values */
-        if (mxIsDouble(a) ? std::isnan(((double*)s_i)[0]) : std::isnan(((float*)s_i)[0])) info = -4; 
-        
-        /* iteration where error occurred (matlab 1 offset) */
-        if (info) bad_exit = i+1;
+        if (mxIsDouble(a) ? std::isnan(((double*)s_i)[0]) : std::isnan(((float*)s_i)[0])) info = i+1; 
         
     } /* end of pragma omp for loop */
 
@@ -206,16 +197,16 @@ if (m*n*p)
 } /* end of pragma omp parallel block */
 
 
-    /* throw error (not allowed inside omp block) */
-    if (bad_exit)
+    /* now can throw error */
+    if (info)
     {
         std::string str = "LAPACKE_ gesdd() failed ";
         if(!mxIsComplex(a) && !mxIsDouble(a)) str.replace(8,1,"s");
         if(!mxIsComplex(a) &&  mxIsDouble(a)) str.replace(8,1,"d");
         if( mxIsComplex(a) && !mxIsDouble(a)) str.replace(8,1,"c");
         if( mxIsComplex(a) &&  mxIsDouble(a)) str.replace(8,1,"z");
-        if (bad_exit == -1) str += "due to insufficient memory.";
-        else str += "on matrix " + std::to_string(bad_exit) + ".";
+        if (info == -1) str += "due to insufficient memory (a_i).";
+        else str += "on matrix " + std::to_string(info) + ".";
         mexErrMsgTxt(str.c_str());
     }
     
