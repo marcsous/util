@@ -43,19 +43,20 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     if (nrhs > 3) mexErrMsgTxt("Too many input arguments.");    
     if (nlhs > 3) mexErrMsgTxt("Too many output arguments.");          
     if (nrhs < 1) mexErrMsgTxt("Not enough input arguments.");
-    if (mxGetClassID(prhs[0])!=mxSINGLE_CLASS && mxGetClassID(prhs[0])!=mxDOUBLE_CLASS) mexErrMsgTxt("First argument must be numeric array.");
+    if (!mxIsClass(prhs[0],"double") && !mxIsClass(prhs[0],"single")) mexErrMsgTxt("First argument must be numeric array.");
     
+    /* parse 2nd + 3rd arguments */    
     char jobz       = (nlhs > 1) ? 'A' : 'N'; // A(ll), S(mall) or N(o U or V)
     char outputForm = (nlhs > 1) ? 'M' : 'V'; // M(atrix), V(ector) or T(rans) [same as M but returns V' not V]
     bool trans = false; // return the transpose V' instead of V [faster as lapack returns V': option "T" above]
-    
-    if (nrhs>1)
+
+    for (int i = 1; i < nrhs; i++)
     {
-        char str[8]; // max arg length 6 + '\0'
-        mxGetString(prhs[1], str, sizeof(str));
+        char str[8] = {'\0'}; // 8 is enough
+        mxGetString(prhs[i],str,sizeof(str));
         
         if (strcasecmp(str,"econ")==0)
-            jobz = (nlhs > 1) ? 'S' : jobz;
+            jobz = (nlhs > 1) ? 'S' : 'N';
         else if (strcasecmp(str,"vector")==0)
             outputForm = 'V';
         else if (strcasecmp(str,"matrix")==0)
@@ -63,29 +64,11 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
         else if (strcasecmp(str,"trans")==0)
             trans = outputForm = 'M';
         else
-            mexErrMsgTxt("Second input argument must be 'econ', 'vector' or 'matrix'.");
-        
-        if (nrhs>2)
-        {
-            mxGetString(prhs[2], str, sizeof(str));
-            
-            if (strcasecmp(str,"vector")==0)
-                outputForm = 'V';
-            else if (strcasecmp(str,"matrix")==0)
-                outputForm = 'M';       
-            else if (strcasecmp(str,"trans")==0)
-                trans = outputForm = 'M';
-            else
-                mexErrMsgTxt("Third input argument must be 'matrix' or 'vector'.");
-            
-            if (jobz=='A') mexErrMsgTxt("Cannot specify 'matrix' and 'vector'.");
-        }
+            mexErrMsgTxt("Arguments can be 'econ', 'vector' or 'matrix'.");
     }
 
-    /* pointer to input array */  
+    /* input array: a */  
     const mxArray *a = prhs[0];
-    
-    /* check matrix */ 
     const mwSize *adims = mxGetDimensions(a);    
     mwSize ndim = mxGetNumberOfDimensions(a);
     
@@ -116,14 +99,13 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     mxArray *s = mxCreateNumericArray(3, cast(sdims), mxGetClassID(a), mxREAL);    
     mxArray *u = mxCreateNumericArray(3, cast(udims), mxGetClassID(a), mxIsComplex(a) ? mxCOMPLEX : mxREAL);    
     mxArray *v = mxCreateNumericArray(3, cast(vdims), mxGetClassID(a), mxIsComplex(a) ? mxCOMPLEX : mxREAL);
-    
     if (!s || !u || !v) mexErrMsgTxt("Insufficent memory (s, u, v, info).");
    
     /* get no. threads from matlab (maxNumCompThreads) */
     mxArray *mex_plhs[1], *mex_prhs[0];
     mexCallMATLAB(1, mex_plhs, 0, mex_prhs, "maxNumCompThreads");
     int nthreads = (int)mxGetScalar(mex_plhs[0]);
-    if (nthreads == 1) mexWarnMsgTxt("pagesvd threads equals 1. Try increasing maxNumCompThreads.");
+    if (nthreads==1) mexWarnMsgTxt("pagesvd threads equals 1. Try increasing maxNumCompThreads.");
 
     /* catch errors in omp block (mexErrMsgTxt crashes). on error, info stores bad matrix index */
     volatile lapack_int info = 0;
@@ -191,7 +173,7 @@ if (m*n*p)
 } /* end of pragma omp parallel block */
 
 
-    /* now can throw any errors */
+    /* now can throw errors */
     if (info)
     {
         std::string str = "LAPACKE_ gesdd() failed ";
