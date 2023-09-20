@@ -10,16 +10,19 @@
  *          outputForm can be 'matrix' or 'vector' [or 'trans' = same as 'matrix' but returns V' not V]
  *
  * To compile:
- *          mex pagesvd.cpp -v -lmwlapack -R2018a
+ *          mex pagesvd.cpp -lmwlapack -R2018a
  */
 
-#include "mex.h"
-#include "lapack.h"
 #include <complex>
+#define lapack_complex_float  std::complex<float>
+#define lapack_complex_double std::complex<double>
+
+#include "lapacke.h"
 #include <cstring>
 #include <omp.h>
 #include <algorithm>
 #include <iostream>
+#include "mex.h"
 
 #if !MX_HAS_INTERLEAVED_COMPLEX
 #error "This MEX-file must be compiled with the -R2018a flag."
@@ -44,9 +47,9 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     if (nrhs < 1) mexErrMsgTxt("Not enough input arguments.");
     if (mxGetClassID(prhs[0])!=mxSINGLE_CLASS && mxGetClassID(prhs[0])!=mxDOUBLE_CLASS) mexErrMsgTxt("First argument must be numeric array.");
     
-    char jobz       = (nlhs > 1) ? 'A' : 'N'; // A(ll) or S(mall) [N(o U or V): singular values only
-    char outputForm = (nlhs > 1) ? 'M' : 'V'; // M(atrix) or V(ector) [T(rans): same as M but returns V' not V]
-    bool trans = false; // outputForm = 'T' returns the transpose V' instead of V (faster as lapack returns V')
+    char jobz       = (nlhs > 1) ? 'A' : 'N'; // A(ll), S(mall) or N(o U or V)
+    char outputForm = (nlhs > 1) ? 'M' : 'V'; // M(atrix), V(ector) or T(rans) [same as M but returns V' not V]
+    bool trans = false; // return the transpose V' instead of V [faster as lapack returns V': option "T" above]
     
     if (nrhs>1)
     {
@@ -88,135 +91,141 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     /* pointer to input array */  
     const mxArray *a = prhs[0];
     
-    /* check matrix */  
+    /* check matrix */ 
+    const mwSize *adims = mxGetDimensions(a);    
     mwSize ndim = mxGetNumberOfDimensions(a);
-    const mwSize *adim = mxGetDimensions(a);
     
-    ptrdiff_t m = ndim>0 ? adim[0] : 1;
-    ptrdiff_t n = ndim>1 ? adim[1] : 1;
-    ptrdiff_t p = ndim>2 ? adim[2] : 1;
-    for (int i = 3; i < ndim; i++) p *= adim[i]; /* stack all higher dimensions */
+    lapack_int m = ndim>0 ? adims[0] : 1;
+    lapack_int n = ndim>1 ? adims[1] : 1;
+    lapack_int p = ndim>2 ? adims[2] : 1;
+    for (int i = 3; i < ndim; i++) p *= adims[i]; /* stack all higher dimensions */
     
-    ptrdiff_t mn = std::min(m, n);
-    ptrdiff_t mx = std::max(m, n);
+    lapack_int mn = std::min(m, n);
+    lapack_int mx = std::max(m, n);
     
     /* output arrays: s, u, v */   
-    ptrdiff_t sdim[3] = {m,n,p}; 
-    if (jobz=='S' || jobz=='N') sdim[0] = sdim[1] = mn;
-    if (outputForm=='V') sdim[1] = 1;
+    lapack_int sdims[3] = {m,n,p}; 
+    if (jobz=='S' || jobz=='N') sdims[0] = sdims[1] = mn;
+    if (outputForm=='V') sdims[1] = 1;
 
-    ptrdiff_t udim[3] = {m,m,p};
-    if (jobz=='S') udim[1] = mn;
-    if (jobz=='N') udim[0] = udim[1] = 1;
+    lapack_int udims[3] = {m,m,p};
+    if (jobz=='S') udims[1] = mn;
+    if (jobz=='N') udims[0] = udims[1] = 1;
 
-    ptrdiff_t vdim[3] = {n,n,p};
-    if (jobz=='S') vdim[0] = mn;
-    if (jobz=='N') vdim[0] = vdim[1] = 1;
+    lapack_int vdims[3] = {n,n,p};
+    if (jobz=='S') vdims[0] = mn;
+    if (jobz=='N') vdims[0] = vdims[1] = 1;
+
+    mwSize xdims[std::max<mwSize>(ndim,3)]; /* for casting lapack_int[] into mwSize[] */
+    #define cast(arr) std::copy_n(arr,3,xdims)-3 /* returns pointer to start of xdims */
     
-    mwSize xdim[std::max<mwSize>(ndim,3)]; /* for copying ptrdiff_t[] into mwSize[] */
-    mxArray *s = mxCreateNumericArray(3, std::copy_n(sdim,3,xdim)-3, mxGetClassID(a), mxREAL);    
-    mxArray *u = mxCreateNumericArray(3, std::copy_n(udim,3,xdim)-3, mxGetClassID(a), mxIsComplex(a) ? mxCOMPLEX : mxREAL);    
-    mxArray *v = mxCreateNumericArray(3, std::copy_n(vdim,3,xdim)-3, mxGetClassID(a), mxIsComplex(a) ? mxCOMPLEX : mxREAL);
+    mxArray *s = mxCreateNumericArray(3, cast(sdims), mxGetClassID(a), mxREAL);    
+    mxArray *u = mxCreateNumericArray(3, cast(udims), mxGetClassID(a), mxIsComplex(a) ? mxCOMPLEX : mxREAL);    
+    mxArray *v = mxCreateNumericArray(3, cast(vdims), mxGetClassID(a), mxIsComplex(a) ? mxCOMPLEX : mxREAL);
     
-    if (!s || !u || !v) mexErrMsgTxt("Insufficent memory (s, u, v).");
+    if (!s || !u || !v) mexErrMsgTxt("Insufficent memory (s, u, v, info).");
    
-    /* get number of threads from Matlab (maxNumCompThreads) */
-    mxArray *matlabCallOut[1] = {0};
-    mxArray *matlabCallIn[1]  = {0};
-    mexCallMATLAB(1, matlabCallOut, 0, matlabCallIn, "maxNumCompThreads");
-    double *pthreads = mxGetPr(matlabCallOut[0]);
-    int nthreads = int(*pthreads);
-    if (nthreads == 1) mexWarnMsgTxt("pagesvd threads equals 1. Try increasing maxNumCompThreads().");
-    
-    
+    /* get no. threads from matlab (maxNumCompThreads) */
+    mxArray *mex_plhs[1], *mex_prhs[0];
+    mexCallMATLAB(1, mex_plhs, 0, mex_prhs, "maxNumCompThreads");
+    int nthreads = (int)mxGetScalar(mex_plhs[0]);
+    if (nthreads == 1) mexWarnMsgTxt("pagesvd threads equals 1. Try increasing maxNumCompThreads.");
+
+    /* catch bad exits from omp block (mexErrMsgTxt causes crash) */
+    volatile int bad_exit = 0;
+
+
 /* run in parallel on single threads */
 #pragma omp parallel num_threads(nthreads)
 if (m*n*p)
 { 
-    /* workspace calculations */
-    ptrdiff_t *iwork = (ptrdiff_t*)mxMalloc( 8 * mn * sizeof(ptrdiff_t) );
-      
-    ptrdiff_t sz = std::max(5*mn*mn+5*mn, 2*mx*mn+2*mn*mn+mn);
-    void *rwork = (void*)mxMalloc( sz * mxGetElementSize(s) );
-    
-    ptrdiff_t lwork = std::max(mn*mn+2*mn+mx, 4*mn*mn+6*mn+mx);
-    void *work = (void*)mxMalloc( lwork * mxGetElementSize(a) );
-    
-    /* copy the i-th matrix of a (lapack overwrites) */
-    void *a_i = (void*)mxMalloc( m * n * mxGetElementSize(a) );
-    
-    if (!iwork || !rwork || !work || !a_i) mexErrMsgTxt("Insufficent memory (work).");   
+    /* copy i-th matrix of a (lapack overwrites) */
+    void *a_i = mxMalloc( m * n * mxGetElementSize(a) ); 
+    if (!a_i) bad_exit = -1; /* cannot exit omp block */
     
     /* svd and transpose v */   
     #pragma omp for schedule(static,1)
     for (int i = 0; i < p; i++)
     {  
-        ptrdiff_t info = -1;
+        /* on error skip processing */
+        if (bad_exit) continue;
         
         /* point to the i-th matrix (use char* for bytes) */
-        void *s_i = (char*)mxGetData(s) + i * sdim[0] * sdim[1] * mxGetElementSize(s);
-        void *u_i = (char*)mxGetData(u) + i * udim[0] * udim[1] * mxGetElementSize(u);
-        void *v_i = (char*)mxGetData(v) + i * vdim[0] * vdim[1] * mxGetElementSize(v);
+        void *s_i = (char*)mxGetData(s) + i * sdims[0] * sdims[1] * mxGetElementSize(s);
+        void *u_i = (char*)mxGetData(u) + i * udims[0] * udims[1] * mxGetElementSize(u);
+        void *v_i = (char*)mxGetData(v) + i * vdims[0] * vdims[1] * mxGetElementSize(v);
         std::memcpy(a_i, (char*)mxGetData(a) + i * m * n * mxGetElementSize(a), m * n * mxGetElementSize(a));
 
+        lapack_int info;        
+        
         // real float
         if(!mxIsComplex(a) && !mxIsDouble(a))
         {
-            sgesdd(&jobz, &m, &n, (float*)a_i, &m, (float*)s_i, (float*)u_i, udim, (float*)v_i, vdim, (float*)work, &lwork, iwork, &info);
+            info = LAPACKE_sgesdd(LAPACK_COL_MAJOR, jobz, m, n, (float*)a_i, adims[0], (float*)s_i, (float*)u_i, udims[0], (float*)v_i, vdims[0]);
             
-            if (trans==false) transpose((float*)v_i, vdim[0], vdim[1]);
-            if (outputForm=='M') shift_rows((float*)s_i, sdim[0], sdim[1]);
+            if (trans==false) transpose((float*)v_i, vdims[0], vdims[1]);
+            if (outputForm=='M') shift_rows((float*)s_i, sdims[0], sdims[1]);
         }
-        
         // real double
         else if(!mxIsComplex(a) &&  mxIsDouble(a))
         {
-            dgesdd(&jobz, &m, &n, (double*)a_i, &m, (double*)s_i, (double*)u_i, udim, (double*)v_i, vdim, (double*)work, &lwork, iwork, &info);
+            info = LAPACKE_dgesdd(LAPACK_COL_MAJOR, jobz, m, n, (double*)a_i, adims[0], (double*)s_i, (double*)u_i, udims[0], (double*)v_i, vdims[0]);
         
-            if (trans==false) transpose((double*)v_i, vdim[0], vdim[1]);
-            if (outputForm=='M') shift_rows((double*)s_i, sdim[0], sdim[1]);
-
+            if (trans==false) transpose((double*)v_i, vdims[0], vdims[1]);
+            if (outputForm=='M') shift_rows((double*)s_i, sdims[0], sdims[1]);
         }   
-        
         // complex float
         else if( mxIsComplex(a) && !mxIsDouble(a))
         {
-            cgesdd(&jobz, &m, &n, (float*)a_i, &m, (float*)s_i, (float*)u_i, udim, (float*)v_i, vdim, (float*)work, &lwork, (float*)rwork, iwork, &info);
+            info = LAPACKE_cgesdd(LAPACK_COL_MAJOR, jobz, m, n, (lapack_complex_float*)a_i, adims[0], (float*)s_i, (lapack_complex_float*)u_i, udims[0], (lapack_complex_float*)v_i, vdims[0]);
 
-            if (trans==false) transpose((std::complex<float>*)v_i, vdim[0], vdim[1]);
-            if (trans==false) conjugate((std::complex<float>*)v_i, vdim[0], vdim[1]);   
-            if (outputForm=='M') shift_rows((float*)s_i, sdim[0], sdim[1]);      
+            if (trans==false) transpose((lapack_complex_float*)v_i, vdims[0], vdims[1]);
+            if (trans==false) conjugate((lapack_complex_float*)v_i, vdims[0], vdims[1]);   
+            if (outputForm=='M') shift_rows((float*)s_i, sdims[0], sdims[1]);      
         }
-        
         // complex double
         else if( mxIsComplex(a) &&  mxIsDouble(a))
         {
-            zgesdd(&jobz, &m, &n, (double*)a_i, &m, (double*)s_i, (double*)u_i, udim, (double*)v_i, vdim, (double*)work, &lwork, (double*)rwork, iwork, &info);
-            
-            if (trans==false) transpose((std::complex<double>*)v_i, vdim[0], vdim[1]);
-            if (trans==false) conjugate((std::complex<double>*)v_i, vdim[0], vdim[1]);
-            if (outputForm=='M') shift_rows((double*)s_i, sdim[0], sdim[1]);
+            info = LAPACKE_zgesdd(LAPACK_COL_MAJOR, jobz, m, n, (lapack_complex_double*)a_i, adims[0], (double*)s_i, (lapack_complex_double*)u_i, udims[0], (lapack_complex_double*)v_i, vdims[0]);
+
+            if (trans==false) transpose((lapack_complex_double*)v_i, vdims[0], vdims[1]);
+            if (trans==false) conjugate((lapack_complex_double*)v_i, vdims[0], vdims[1]);
+            if (outputForm=='M') shift_rows((double*)s_i, sdims[0], sdims[1]);
         }
+      
+        /* lapack doesn't catch Inf but returns NaN singular values */
+        if (mxIsDouble(a) ? std::isnan(((double*)s_i)[0]) : std::isnan(((float*)s_i)[0])) info = -4; 
         
-        if(info) mexErrMsgTxt("dgesdd failed (run).");
-    
+        /* iteration where error occurred (matlab 1 offset) */
+        if (info) bad_exit = i+1;
+        
     } /* end of pragma omp for loop */
-    
-    mxFree(a_i);   
-    mxFree(work);
-    mxFree(iwork);
-    mxFree(rwork);
+
+    if (a_i) mxFree(a_i);
     
 } /* end of pragma omp parallel block */
 
+
+    /* throw error (not allowed inside omp block) */
+    if (bad_exit)
+    {
+        std::string str = "LAPACKE_ gesdd() failed ";
+        if(!mxIsComplex(a) && !mxIsDouble(a)) str.replace(8,1,"s");
+        if(!mxIsComplex(a) &&  mxIsDouble(a)) str.replace(8,1,"d");
+        if( mxIsComplex(a) && !mxIsDouble(a)) str.replace(8,1,"c");
+        if( mxIsComplex(a) &&  mxIsDouble(a)) str.replace(8,1,"z");
+        if (bad_exit == -1) str += "due to insufficient memory.";
+        else str += "on matrix " + std::to_string(bad_exit) + ".";
+        mexErrMsgTxt(str.c_str());
+    }
     
     /* reshape to match input */
-    if (trans==false) std::swap(vdim[0], vdim[1]);
+    if (trans==false) std::swap(vdims[0], vdims[1]);
     
-    std::copy_n(adim, ndim, xdim);
-    xdim[0] = sdim[0]; xdim[1] = sdim[1]; mxSetDimensions(s, xdim, ndim);    
-    xdim[0] = udim[0]; xdim[1] = udim[1]; mxSetDimensions(u, xdim, ndim);
-    xdim[0] = vdim[0]; xdim[1] = vdim[1]; mxSetDimensions(v, xdim, ndim);
+    std::copy_n(adims, ndim, xdims);
+    xdims[0] = sdims[0]; xdims[1] = sdims[1]; mxSetDimensions(s, xdims, ndim);    
+    xdims[0] = udims[0]; xdims[1] = udims[1]; mxSetDimensions(u, xdims, ndim);
+    xdims[0] = vdims[0]; xdims[1] = vdims[1]; mxSetDimensions(v, xdims, ndim);
 
     if (nlhs > 2)
     {
