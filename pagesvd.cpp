@@ -18,7 +18,6 @@
 #include <cmath>
 #include <string>
 #include <algorithm>
-#include <iostream>
 
 /* lapacke.h allows a custom complex type */
 #define lapack_complex_float  mxComplexSingle
