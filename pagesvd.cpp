@@ -18,6 +18,7 @@
 #include <cmath>
 #include <string>
 #include <algorithm>
+#include <iostream>
 
 /* lapacke.h allows a custom complex type */
 #define lapack_complex_float  mxComplexSingle
@@ -69,24 +70,24 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     const mwSize *adims = mxGetDimensions(a);    
     mwSize ndim = mxGetNumberOfDimensions(a);
     
-    lapack_int m = ndim>0 ? adims[0] : 1;
-    lapack_int n = ndim>1 ? adims[1] : 1;
-    lapack_int p = ndim>2 ? adims[2] : 1;
+    mwSize m = ndim>0 ? adims[0] : 1;
+    mwSize n = ndim>1 ? adims[1] : 1;
+    mwSize p = ndim>2 ? adims[2] : 1;
     for (int i = 3; i < ndim; i++) p *= adims[i]; // stack all higher dimensions
     
-    lapack_int mn = std::min(m, n);
-    lapack_int mx = std::max(m, n);
+    mwSize mn = std::min(m, n);
+    mwSize mx = std::max(m, n);
     
     /* output arrays: s, u, v */   
-    lapack_int sdims[3] = {m,n,p}; 
+    mwSize sdims[3] = {m,n,p}; 
     if (jobz=='S' || jobz=='N') sdims[0] = sdims[1] = mn;
     if (outputForm=='V') sdims[1] = 1;
 
-    lapack_int udims[3] = {m,m,p};
+    mwSize udims[3] = {m,m,p};
     if (jobz=='S') udims[1] = mn;
     if (jobz=='N') udims[0] = udims[1] = 1;
 
-    lapack_int vdims[3] = {n,n,p};
+    mwSize vdims[3] = {n,n,p};
     if (jobz=='S') vdims[0] = mn;
     if (jobz=='N') vdims[0] = vdims[1] = 1;
 
@@ -96,12 +97,9 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 if (std::stod(OCTAVE_VERSION)<=8.3 && mxIsComplex(a)) udims[2] = vdims[2] = 2*p;
 #endif
     
-    mwSize xdims[std::max<mwSize>(ndim,3)]; // for casting lapack_int[] into mwSize[]
-    #define cast(arr) std::copy_n(arr,3,xdims)-3 // returns pointer to start of xdims
-    
-    mxArray *s = mxCreateNumericArray(3, cast(sdims), mxGetClassID(a), mxREAL);    
-    mxArray *u = mxCreateNumericArray(3, cast(udims), mxGetClassID(a), mxIsComplex(a) ? mxCOMPLEX : mxREAL);    
-    mxArray *v = mxCreateNumericArray(3, cast(vdims), mxGetClassID(a), mxIsComplex(a) ? mxCOMPLEX : mxREAL);
+    mxArray *s = mxCreateNumericArray(3, sdims, mxGetClassID(a), mxREAL);    
+    mxArray *u = mxCreateNumericArray(3, udims, mxGetClassID(a), mxIsComplex(a) ? mxCOMPLEX : mxREAL);    
+    mxArray *v = mxCreateNumericArray(3, vdims, mxGetClassID(a), mxIsComplex(a) ? mxCOMPLEX : mxREAL);
     if (!s || !u || !v) mexErrMsgTxt("Insufficent memory (s, u, v, info).");
    
     /* get no. threads from matlab (maxNumCompThreads) */
@@ -191,12 +189,11 @@ if (m*n*p)
     }
     
     /* reshape to match input */
-    if (trans==false) std::swap(vdims[0], vdims[1]);
-    
+    mwSize xdims[ndim];
     std::copy_n(adims, ndim, xdims);
     xdims[0] = sdims[0]; xdims[1] = sdims[1]; mxSetDimensions(s, xdims, ndim);    
     xdims[0] = udims[0]; xdims[1] = udims[1]; mxSetDimensions(u, xdims, ndim);
-    xdims[0] = vdims[0]; xdims[1] = vdims[1]; mxSetDimensions(v, xdims, ndim);
+    xdims[0] = vdims[trans]; xdims[1] = vdims[!trans]; mxSetDimensions(v, xdims, ndim);
 
     if (nlhs > 2)
     {
