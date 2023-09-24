@@ -40,7 +40,7 @@ elseif numel(CLIM)==1
         CLIM = -CLIM;        
         usecolorbar = false;
     end
-    if CLIM==0 || CLIM>1
+    if CLIM==0 %|| CLIM>1
         error('CLIM (scalar) must be between 0 and 1.');
     end
 elseif numel(CLIM)>2
