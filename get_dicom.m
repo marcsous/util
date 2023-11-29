@@ -51,11 +51,11 @@ if isa(token,'struct')
     info = cell2struct(token.Images,'name',numel(token.Images));
 else
     if isempty(token)
-        disp([mfilename '(): Reading in all files. Found 0   '])
+        fprintf([mfilename '(): Reading in all files. Found 0   '])
     elseif isa(token,'char')
-        disp([mfilename '(): Parsing SeriesDescription with ''' token '''. Found 0   '])
+        fprintf([mfilename '(): Parsing SeriesDescription with ''' token '''. Found 0   '])
     elseif isa(token,'numeric')
-        disp([mfilename '(): Parsing SeriesNumber with ''' num2str(token) '''. Found 0   '])
+        fprintf([mfilename '(): Parsing SeriesNumber with ''' num2str(token) '''. Found 0   '])
     end
     info = get_files(pathname); % recurse into directories
 end
@@ -67,17 +67,17 @@ tmpfile = [tempname '.delete.me'];
 fid = fopen(tmpfile,'w');
 fclose(fid);
 
-for j = 1:numel(info) % fast with parfor
+for j = 1:numel(info) % much faster with parfor
 
     % current file
     filename = [pathname info(j).name];
-    
+
     % test for maxno and whether it's a DICOM file
     if update_counter(tmpfile,maxno) & isdicom(filename)
- 
+
         % read header
         head = dicominfo(filename);
-        
+
         % filter by property
         if isempty(token) || isa(token,'struct')
             found = true;
@@ -95,13 +95,13 @@ for j = 1:numel(info) % fast with parfor
         if isequal(head.Modality,'SR')
             found = false;
         end
-        
+
         % store properties
         if found
 
             % update count
             update_counter(tmpfile);
-            
+
             % read tags for sorting / checking
             if isempty(head.EchoTime)
                 TE(j) = -1;
@@ -114,28 +114,29 @@ for j = 1:numel(info) % fast with parfor
             IN(j) = head.InstanceNumber;
             NEX(j)= head.AcquisitionNumber;
             LF(j) = head.ImagingFrequency;
-            
+
             %SN(j) = head.SeriesNumber;
             SE{j} = head.SeriesInstanceUID;
             ST{j} = head.StudyInstanceUID;
-            
-            % real/imag flags: 0=mag 1=phase 2=real 3=imag 
+
+            % real/imag flags: 0=mag 1=phase 2=real 3=imag
             RI(j) = 0; % default if no tag is present
             if isfield(head,'Private_0043_102f') % GE
                 RI(j) = head.Private_0043_102f(1);
             end
-            if isfield(head,'Private_0051_1016') % Siemens
+            if isfield(head,'ImageType') % Siemens (used to be Private_0051_1016)
                 % look for 'P' or an 'M' (phase/mag)
-                if ismember('M',head.Private_0051_1016)
+                if ismember('M',head.ImageType)
                     RI(j) = 0;
-                elseif ismember('P',head.Private_0051_1016)
+                elseif ismember('P',head.ImageType)
                     RI(j) = 1;
-                elseif ismember('R',head.Private_0051_1016)
+                elseif ismember('R',head.ImageType)
                     RI(j) = 2;
-                elseif ismember('I',head.Private_0051_1016)
+                elseif ismember('I',head.ImageType)
                     RI(j) = 3;
                 else
-                    error('RI handling not working... test me!');
+                    warning('RI handling not working (value = %s).',head.ImageType);
+                    RI(j) = 4;
                 end
             end
 
@@ -143,27 +144,34 @@ for j = 1:numel(info) % fast with parfor
             if isfield(head,'InversionTime')
                 TI(j) = head.InversionTime;
             end
-            
-            % b-values not stored in standard tags... not working for DTI
-            if isfield(head,'Private_0043_1039')
-                %tensor = [head.Private_0019_10bb ...
-                %          head.Private_0019_10bc ...
-                %          head.Private_0019_10bd];
-                
-                % weird GE thing to add 1e9 except when b=0
-                BV(j) = max(0,head.Private_0043_1039(1)-1e9);              
+
+            % b-values not stored in a standard tag
+            if isequal(head.Manufacturer,'GE')
+                if isfield(head,'Private_0043_1039')
+                    %tensor = [head.Private_0019_10bb ...
+                    %          head.Private_0019_10bc ...
+                    %          head.Private_0019_10bd];
+
+                    % weird GE thing to add 1e9 except when b=0
+                    BV(j) = max(0,head.Private_0043_1039(1)-1e9);
+                end
+            elseif isequal(head.Manufacturer,'SIEMENS')
+                if isfield(head,'Private_0019_100c')
+                    BV(j) = head.Private_0019_100c;
+                    % head.Private_0019_100d supposedly holds the direction
+                end
             end
-            
+
             % store images in cell array (less memory)
             data{j} = dicomread(filename);
-            
+
             % store header
             dcm{j} = head;
 
         end % is found
-        
+
     end % is dicom
-    
+
 end
 
 % clean up
@@ -188,7 +196,7 @@ if isfinite(maxno)
 end
 
 % parfor counter is flaky so re-display actual count
-disp(sprintf('\b\b\b\b\b%-4d',count));
+fprintf('\b\b\b\b%-4d\n',count);
 
 % check image dims are compatible - cannot solve this
 [nx ny] = size(data{index(1)});
@@ -218,7 +226,7 @@ RI = RI(index); % rawdata type (real/imag)
 LF = LF(index); % larmor freq
 NEX = NEX(index); % no. excitations (averages)
 if exist('TI','var'); TI = TI(index); else TI = []; end % inversion time
-if exist('BV','var'); BV = BV(index); else BV = []; end % bvalue 
+if exist('BV','var'); BV = BV(index); else BV = []; end % bvalue
 
 % can't handle mixture of studies
 if numel(unique(ST)) > 1
@@ -269,7 +277,9 @@ if ignore_SERIES && nSE>1
     disp([mfilename '(): Combining ' num2str(nSE) ' series. Specify SeriesNumber to avoid this.'])
     [~,k] = unique(kse);
     for j = 1:nSE
-        disp(['  ' num2str(j) '  ' dcm{k(j)}.SeriesDescription])
+        if isfield(dcm{k(j)},'SeriesDescription')
+            disp(['  ' num2str(j) '  ' dcm{k(j)}.SeriesDescription])
+        end
     end
     nSE = 1;
     uSE = 1;
@@ -302,7 +312,7 @@ if count~=expected_count
         ' TIs=' num2str(nTI) ...
         ' Bs=' num2str(nBV) ...
         ' series=' num2str(nSE) ' (ignore=' num2str(ignore_SERIES) ')'...
-        ' real/imag=' num2str(nRI) ... 
+        ' real/imag=' num2str(nRI) ...
         ' averages=' num2str(nNEX)])
     disp('Type "return" to ignore (expect errors!) or dbquit to cancel.')
 keyboard
@@ -439,9 +449,9 @@ if numel(header)<132 % MB exclude easy pickings
 
     % It's too small
     tf = false;
-    
+
 elseif isequal(char(header(129:132))', 'DICM')
-    
+
     % It's a proper DICOM file.
     tf = true;
 
@@ -453,7 +463,7 @@ else
     %group = typecast(header(1:2), 'uint16');
     %if (isequal(group, uint16(2)) || isequal(swapbytes(group), uint16(2)) || ...
     %        isequal(group, uint16(8)) || isequal(swapbytes(group), uint16(8)))
-    % 
+    %
     %    tf = true;
     %else
         tf = false;
@@ -467,7 +477,7 @@ function flag = update_counter(tmpfile,maxno)
 % Warning: "clever"
 % 1 input = increment counter
 % 2 inputs = display counter and test for maxno
-if nargin==1 
+if nargin==1
 
     % only proceed if file is not in use by another lab
     fid = fopen(tmpfile,'a');
@@ -475,25 +485,25 @@ if nargin==1
         pause(rand*1e-2);
         fid = fopen(tmpfile,'a');
     end
- 
+
     % append another 1 to counter file
     fwrite(fid,1);
     fclose(fid);
-    
+
 else
-    
+
     % tmpfile is a vector (1 entry per image)
     fid = fopen(tmpfile,'r');
     count = numel(fread(fid));
     fclose(fid);
-    
+
     % counter status
     flag = count<maxno;
-    
+
     % display counter
     if flag
         % always use 4 characters
-        disp(sprintf('\b\b\b\b\b%-4d',count));
+        fprintf('\b\b\b\b%-4d',count);
     end
 
 end
