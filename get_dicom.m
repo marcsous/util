@@ -123,16 +123,15 @@ for j = 1:numel(info) % much faster with parfor
             RI(j) = 0; % default if no tag is present
             if isfield(head,'Private_0043_102f') % GE
                 RI(j) = head.Private_0043_102f(1);
-            end
-            if isfield(head,'ImageType') % Siemens (used to be Private_0051_1016)
-                % look for 'P' or an 'M' (phase/mag)
-                if ismember('M',head.ImageType)
+            elseif isfield(head,'ImageType') % Siemens (used to be Private_0051_1016)
+                % look for 'P' or 'M' (phase/mag) etc.
+                if strfind(head.ImageType,'\M\')
                     RI(j) = 0;
-                elseif ismember('P',head.ImageType)
+                elseif strfind(head.ImageType,'\P\')
                     RI(j) = 1;
-                elseif ismember('R',head.ImageType)
+                elseif strfind(head.ImageType,'\R\')
                     RI(j) = 2;
-                elseif ismember('I',head.ImageType)
+                elseif strfind(head.ImageType,'\I\')
                     RI(j) = 3;
                 else
                     warning('RI handling not working (value = %s).',head.ImageType);
