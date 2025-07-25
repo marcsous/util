@@ -14,7 +14,7 @@ if ~isequal(show,1) && ~isequal(show,0); error('show must be 0 or 1'); end
 global TXT;
 TXT = txt;
 
-unfold(str,inputname(1),show==1)
+unfold(str,inputname(1),show==1);
 
 %% 
 %
@@ -78,7 +78,7 @@ if isstruct(SC) || isobject(SC)
 
     %recursively display structure including fieldnames
     for h=1:hmax
-        if hmax~=1; error('something weird... MB'); end % MB  
+        %if hmax~=1; warning('something weird... MB'); continue; end % MB  
         F = fieldnames(SC); % MB SC(h) fails on objects...!? so reject hmax>1
         NF = length(F);
         for i=1:NF
@@ -110,17 +110,21 @@ if isstruct(SC) || isobject(SC)
                             Namej = [Namei '{' ind2str(siz,NC) '}'];
                         end
                         if ~isempty(strfind(lower(Namej),lower(TXT)))
-                            disp(Namej)
-                            if show
-                                disp(SC(h).(F{i}){j})
+                            fprintf('%s',Namej)
+                            if show && ~isempty(SC(h).(F{i}){j})
+                                disp(SC(h).(F{i}){j});
+                            else
+                                fprintf('\n');
                             end
                        end
                     end
                 else
                     if ~isempty(strfind(lower(Namei),lower(TXT)))
-                        disp(Namei)
-                        if show
+                        fprintf('%s',Namei)
+                        if show && ~isempty(SC(h).(F{i}))
                             disp(SC(h).(F{i}))
+                        else
+                            fprintf('\n');
                         end
                     end
                 end
