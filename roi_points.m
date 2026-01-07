@@ -15,8 +15,8 @@ elseif ~isscalar(radius)
     error('radius must be a scalar');
 end
 
-% anything larger than 3 dimensions is averaged
-im = mean(reshape(im,nx,ny,ns,[]),4);
+% anything above 3 dimensions is averaged. sqrt to level the dynamic range a bit
+im = sqrt(mean(reshape(im,nx,ny,ns,[]),4));
 
 figure(gcf); clf reset; subplot(1,1,1);
 
@@ -26,7 +26,7 @@ x = []; y = []; s = [];
 
 while button~=3 && button~=27 % right click && Esc key
 
-    imagesc(sqrt(im(:,:,slice,:))); % sqrt to level the range a bit
+    imagesc(im(:,:,slice,:));
     title('left click to select, right click to end',slice);
     
     drawnow;
