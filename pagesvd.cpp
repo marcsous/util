@@ -105,7 +105,7 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     mxArray *s = mxCreateUninitNumericArray(3, sdims, mxGetClassID(a), mxREAL); 
     mxArray *u = mxCreateUninitNumericArray(3, udims, mxGetClassID(a), mxIsComplex(a) ? mxCOMPLEX : mxREAL);    
     mxArray *v = mxCreateUninitNumericArray(3, vdims, mxGetClassID(a), mxIsComplex(a) ? mxCOMPLEX : mxREAL);
-    if (!s || !u || !v) mexErrMsgTxt("Insufficent memory (s, u, v, info).");
+    if (!s || !u || !v) mexErrMsgTxt("Insufficent memory (s, u, v).");
    
     /* get no. threads from matlab (maxNumCompThreads) */
     mxArray *mex_plhs[1], *mex_prhs[0];
