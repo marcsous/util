@@ -2,7 +2,9 @@ function [x y s] = roi_points(im,radius)
 %[x y s] = roi_points(im,radius)
 % Receives an stack of slices for user to drop ROI points onto.
 % Left click to drop an ROI. Right click to finish. Mouse wheel
-% scrolls through slices. Returns x, y and slice locations.
+% scrolls through slices. Esc to quit. X to delete.
+%
+% Returns x, y and slice locations.
 %
 % -im is a stack of 2D images [nx ny ns]
 % -radius is the no. pixels to display drawn ROIs [5]
@@ -22,11 +24,11 @@ figure(gcf); clf reset; subplot(1,1,1);
 
 button = 0;
 slice = ceil(ns/2);
-x = []; y = []; s = [];
+x = []; y = []; s = []; old = [];
 
 while button~=3 && button~=27 % right click && Esc key
 
-    imagesc(im(:,:,slice,:));
+    figure(gcf); imagesc(im(:,:,slice,:));
     title('left click to select, right click to end',slice);
     
     drawnow;
@@ -52,9 +54,25 @@ while button~=3 && button~=27 % right click && Esc key
     for j = -radius:radius
         for k = -radius:radius
             if hypot(j,k)<radius+0.5 && hypot(j,k)>radius-0.5
-                im(x(end)+j,y(end)+k,slice) = NaN;
+                switch button
+                    case 1;
+                        old(end+1) = im(x(end)+j,y(end)+k,slice);
+                        im(x(end)+j,y(end)+k,s(end)) = NaN;
+                    case {88,120};
+                        if numel(old)>0
+                            im(x(end)-j,y(end)-k,s(end)) = old(end);
+                            old(end) = [];
+                        end
+                end
             end
         end
+    end
+
+    % now can delete point
+    if button==88 || button==120 % x or X
+        x = x(1:end-1);
+        y = y(1:end-1);
+        s = s(1:end-1);
     end
 
 end
