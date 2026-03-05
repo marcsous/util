@@ -36,13 +36,19 @@ x = []; y = []; s = []; old = [];
 % quit with right click, Esc, q or Q
 while ~ismember(button,[3 27 81 113])
 
+    % display current slice
     figure(gcf); imagesc(imd(:,:,slice));
-    title('left click to select, right click to end',slice);
+    title('left click to select, right click to quit',slice);
+
+    % capture stray keyboard events that otherwise go to the commandline
+    set(gcf,'WindowKeyPressFcn',@(src, event) disp(''));
     
+    % wait for user input
     drawnow;
     [myy myx button] = ginputc(1);
     drawnow;
 
+    % handle user input
     switch button
 
         case 1; % left click
@@ -61,8 +67,6 @@ while ~ismember(button,[3 27 81 113])
                 
         case {68,100} % darken (d or D)
                 brighten(-0.1);
-                
-        otherwise; % x=delete handled below
 
     end
 
