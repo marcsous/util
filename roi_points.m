@@ -1,13 +1,15 @@
 function [x y s v] = roi_points(im,radius)
 %[x y s v] = roi_points(im,radius)
 % Receives an stack of slices for user to drop ROI points onto.
-% Left click to drop an ROI. Right click to finish. Mouse wheel
-% scrolls through slices. Esc to quit. X to delete.
-%
 % Returns x, y and slice locations, and mean values.
 %
 % -im is a stack of 2D images [nx ny ns]
 % -radius is the no. pixels for ROIs [5]
+%
+% Controls:
+% Left click to drop an ROI. Right click to quit. Mouse wheel to
+% scroll slices. Esc to quit. Q to quit. X to delete. B to brighten.
+% D to darken.
 
 [nx ny ns ne] = size(im);
 
@@ -22,7 +24,6 @@ end
 
 %% image for display of ROIs
 imd = double(im);
-cmap = contrast(imd);
 
 figure(gcf); clf reset; subplot(1,1,1);
 
@@ -32,9 +33,10 @@ button = 0;
 slice = ceil(ns/2);
 x = []; y = []; s = []; old = [];
 
-while button~=3 && button~=27 % right click && Esc key
+% quit with right click, Esc, q or Q
+while ~ismember(button,[3 27 81 113])
 
-    figure(gcf); imagesc(imd(:,:,slice)); colormap(cmap);
+    figure(gcf); imagesc(imd(:,:,slice));
     title('left click to select, right click to end',slice);
     
     drawnow;
@@ -54,17 +56,25 @@ while button~=3 && button~=27 % right click && Esc key
         case 5; % roll wheel down
                 slice = max(slice-1,1);
     
+        case {66,98} % brighten (b or B)
+                brighten(+0.1);
+                
+        case {68,100} % darken (d or D)
+                brighten(-0.1);
+                
+        otherwise; % x=delete handled below
+
     end
 
-    % draw ROI on the image
+    % draw or delete ROI on the image
     for j = -radius:radius
         for k = -radius:radius
             if hypot(j,k)<radius+0.5 && hypot(j,k)>radius-0.5
                 switch button
-                    case 1;
+                    case 1; % left click
                         old(end+1) = imd(x(end)+j,y(end)+k,slice);
                         imd(x(end)+j,y(end)+k,s(end)) = NaN;
-                    case {88,120};
+                    case {88,120}; % x or X
                         if numel(old)>0
                             imd(x(end)-j,y(end)-k,s(end)) = old(end);
                             old(end) = [];
@@ -82,7 +92,6 @@ while button~=3 && button~=27 % right click && Esc key
     end
 
 end
-
 
 %% extract rois
 
