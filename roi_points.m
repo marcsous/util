@@ -20,10 +20,9 @@ elseif ~isscalar(radius)
     error('radius must be a scalar');
 end
 
-%% image for display of ROIs - sqrt to level
+%% image for display of ROIs
 imd = double(im);
-imd = imd-min(imd(:));
-imd = sqrt(abs(imd));
+cmap = contrast(imd);
 
 figure(gcf); clf reset; subplot(1,1,1);
 
@@ -35,7 +34,7 @@ x = []; y = []; s = []; old = [];
 
 while button~=3 && button~=27 % right click && Esc key
 
-    figure(gcf); imagesc(imd(:,:,slice));
+    figure(gcf); imagesc(imd(:,:,slice)); colormap(cmap);
     title('left click to select, right click to end',slice);
     
     drawnow;
