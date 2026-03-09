@@ -3,11 +3,11 @@ clear
 % RF bandwidth (Hz)
 bandwidth = 2000;
 
-% main lobe duration (us)
-duration = 2e6/bandwidth;
-
 % number of side lobes (sharpness) 
 nlobes = 1;
+
+% main lobe duration (us)
+duration = 2e6/bandwidth;
 
 % number of points (us)
 np = (1+nlobes) * duration;
