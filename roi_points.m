@@ -77,15 +77,17 @@ while ~ismember(button,[3 27 81 113])
     end
 
     % wait for user input
-    [myy myx button] = ginput(1);
+    [myy myx button] = ginputc(1,'Hide',true);
 
     % handle user input
     switch button
 
         case 1; % left click
+            if round(myx)>=1 && round(myy)>=1 && round(myx)<=nx && round(myy)<=ny
                 x(end+1) = round(myx);
                 y(end+1) = round(myy);
                 s(end+1) = slice;
+            end
 
         case 4; % roll wheel up
                 slice = max(slice-1,1);
@@ -100,7 +102,7 @@ while ~ismember(button,[3 27 81 113])
                 brighten(-0.1);
 
         case {88,120} % delete point (x or X)
-                if numel(x) > 0
+                if numel(x)>=1
                     x = x(1:end-1);
                     y = y(1:end-1);
                     s = s(1:end-1);
