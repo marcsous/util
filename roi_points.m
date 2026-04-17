@@ -1,7 +1,7 @@
 function [x y s v] = roi_points(im,radius)
 %[x y s v] = roi_points(im,radius)
-% Receives an stack of slices for user to drop ROI points onto.
-% Returns x, y and slice locations, and mean values.
+% Receives a stack of slices for user to drop ROI points onto.
+% Returns x, y and (s)lice locations, and mean (v)alues.
 %
 % -im is a stack of 2D images [nx ny ns]
 % -radius is the no. pixels for ROIs [5]
@@ -18,12 +18,12 @@ function [x y s v] = roi_points(im,radius)
 
 [nx ny ns ne] = size(im);
 
-if ne~=1
+if ne~=1 % no extra dimesions allowed
     error('im can only be 2D or 3D array');
 end
 if nargin<2
     radius = 5;
-elseif ~isscalar(radius)
+elseif ~isscalar(radius) || ~isfinite(radius)
     error('radius must be a scalar');
 end
 
@@ -34,7 +34,7 @@ slice = ceil(ns/2);
 range = -radius:radius;
 x = []; y = []; s = []; v = [];
 
-% circular mask
+% create circular mask
 mask = false(numel(range));
 for j = range
     for k = range
@@ -47,7 +47,7 @@ end
 % reset figure
 figure(gcf); clf reset; subplot(1,1,1);
 
-% capture stray keyboard events that otherwise go to the commandline
+% capture keyboard events that otherwise go to the commandline
 set(gcf,'WindowKeyPressFcn',@(src, event) disp(''));
 
 %% capture user events
@@ -61,25 +61,23 @@ while ~ismember(button,[3 27 81 113])
 
     % draw ROIs on the image
     for n = 1:numel(x)
+
+        % mean value inside mask
+        tmp = im(x(n)+range,y(n)+range,s(n));
+        v(n) = mean(tmp(mask));
+
+        % draw ROI on the image
         if slice==s(n)
-
-            % mean value inside mask
-            tmp = im(x(n)+range,y(n)+range,s);
-            v(n) = mean(tmp(mask));
-
-            % draw ROI on the image
             text(y(n),x(n),'◯','Fontsize',2*radius+1,'HorizontalAlignment','center','Color','r');
-
             if     abs(v(n))>10; fmt = '%.0f';
             elseif abs(v(n))> 1; fmt = '%.1f';
             else fmt = '%.2f'; end
             text(y(n)+radius,x(n)+1,num2str(v(n),fmt),'Color','r','FontSize',14);
-
         end
     end
 
     % wait for user input
-    [myy myx button] = ginputc(1);
+    [myy myx button] = ginput(1);
 
     % handle user input
     switch button
