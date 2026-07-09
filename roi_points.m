@@ -1,10 +1,12 @@
-function [x y s v] = roi_points(im,radius)
-%[x y s v] = roi_points(im,radius)
+function [x y s v] = roi_points(im,radius,txt,clim)
+%[x y s v] = roi_points(im,radius,txt,clim)
 % Receives a stack of slices for user to drop ROI points onto.
 % Returns x, y and (s)lice locations, and mean (v)alues.
 %
 % -im is a stack of 2D images [nx ny ns]
-% -radius is the no. pixels for ROIs [5]
+% -radius is the no. pixels for ROIs [7]
+% -txt is a title for the Figure ['']
+% -clim is passed to imagesc []
 %
 % Controls:
 % -Left click to drop an ROI
@@ -21,31 +23,39 @@ function [x y s v] = roi_points(im,radius)
 if ne~=1 % no extra dimesions allowed
     error('im can only be 2D or 3D array');
 end
-if nargin<2
-    radius = 5;
+if nargin<2 || isempty(radius)
+    radius = 7;
 elseif ~isscalar(radius) || ~isfinite(radius)
     error('radius must be a scalar');
+end
+if nargin<3
+    txt = '';
+end
+if nargin<4
+    clim = [-Inf Inf];
 end
 
 %% initialize
 
 button = 0;
 slice = ceil(ns/2);
-range = -radius:radius;
 x = []; y = []; s = []; v = [];
-
-% create circular mask
-mask = false(numel(range));
-for j = range
-    for k = range
-        if hypot(j,k)<=radius
-            mask(1+radius+j,1+radius+k) = true;
-        end
-    end
-end
 
 % reset figure
 figure(gcf); clf reset; subplot(1,1,1);
+
+% title spacing (treat '  ' as flexible spacing)
+n = numel(strfind(txt,'  '));
+if n>0
+    nspaces = 3;
+    h = title(txt,slice);
+    while h.Extent(3)<n/(n+1)
+        stretched_txt = strrep(txt,'  ',repmat(' ',1,nspaces));
+        h = title(stretched_txt,slice);
+        nspaces = nspaces+1;
+    end
+    txt = stretched_txt;
+end
 
 % capture keyboard events that otherwise go to the commandline
 set(gcf,'WindowKeyPressFcn',@(src, event) disp(''));
@@ -56,23 +66,21 @@ set(gcf,'WindowKeyPressFcn',@(src, event) disp(''));
 while ~ismember(button,[3 27 81 113])
 
     % update image
-    figure(gcf); imagesc(im(:,:,slice));
-    title('left click to select, right click to quit',slice);
-
+    figure(gcf); imagesc(im(:,:,slice),clim); colorbar; title(txt,slice);
+ 
     % draw ROIs on the image
-    for n = 1:numel(x)
-
-        % mean value inside mask
-        tmp = im(x(n)+range,y(n)+range,s(n));
-        v(n) = mean(tmp(mask));
-
-        % draw ROI on the image
+    for n = 1:numel(s)
         if slice==s(n)
-            text(y(n),x(n),'◯','Fontsize',2*radius+1,'HorizontalAlignment','center','Color','r');
+            h = drawcircle('Color','red','FaceAlpha',0,'Radius',radius,'Center',[y(n) x(n)],'LineWidth',1,'InteractionsAllowed','none');
+            
+            mask = createMask(h);
+            tmp = im(:,:,slice);
+            v(n) = mean(tmp(mask(:)));
+
             if     abs(v(n))>10; fmt = '%.0f';
             elseif abs(v(n))> 1; fmt = '%.1f';
             else fmt = '%.2f'; end
-            text(y(n)+radius,x(n)+1,num2str(v(n),fmt),'Color','r','FontSize',14);
+            text(y(n)+radius+1,x(n)+1,num2str(v(n),fmt),'Color','r','FontSize',14);
         end
     end
 
@@ -87,27 +95,39 @@ while ~ismember(button,[3 27 81 113])
                 x(end+1) = round(myx);
                 y(end+1) = round(myy);
                 s(end+1) = slice;
-            end
+             end
 
         case 4; % roll wheel up
-                slice = max(slice-1,1);
+            slice = max(slice-1,1);
 
         case 5; % roll wheel down
-                slice = min(slice+1,ns);
-    
+            slice = min(slice+1,ns);
+
         case {66,98} % brighten (b or B)
-                brighten(+0.1);
-                
+            brighten(+0.1);
+
         case {68,100} % darken (d or D)
-                brighten(-0.1);
+            brighten(-0.1);
 
         case {88,120} % delete point (x or X)
-                if numel(x)>=1
-                    x = x(1:end-1);
-                    y = y(1:end-1);
-                    s = s(1:end-1);
-                    v = v(1:end-1);
-                end
-        end
+            if numel(x)>=1
+                x = x(1:end-1);
+                y = y(1:end-1);
+                s = s(1:end-1);
+                v = v(1:end-1);
+            end
+
+    end
+
+    % validation - etch ROI into the image
+    %if button==1
+    %    for j = -radius:radius
+    %        for k = -radius:radius
+    %            if hypot(j,k)<radius+0.5 && hypot(j,k)>radius-0.5
+    %                im(x(end)+j,y(end)+k,s(end)) = NaN;
+    %            end
+    %        end
+    %    end
+    %end
 
 end
