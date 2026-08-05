@@ -7,7 +7,7 @@
  *          [__] = pagesvd(X,'econ')
  *          [__] = pagesvd(__,outputForm)
  *
- *          outputForm can be 'vector' or 'matrix' [or 'trans' to return V' not V]
+ *          outputForm can be 'vector' or 'matrix'
  *
  * Compile:
  *          (MATLAB) mex pagesvd.cpp -lmwlapack -R2018a
@@ -18,6 +18,8 @@
 #include <cmath>
 #include <string>
 #include <cstring>
+#include <iostream>
+#include <atomic>
 #include <algorithm>
 
 /* lapacke.h allows a custom complex type */
@@ -36,7 +38,7 @@
 #endif
 
 template <typename T>
-inline void transpose(T *A, int m, int n);
+inline void transpose(T *A, int m, int n, T *buf);
 
 template <typename T>
 inline void shiftrows(T *S, int m, int n);
@@ -48,24 +50,24 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     if (nlhs > 3) mexErrMsgTxt("Too many output arguments.");          
     if (nrhs < 1) mexErrMsgTxt("Not enough input arguments.");
     if (!mxIsDouble(prhs[0]) && !mxIsSingle(prhs[0])) mexErrMsgTxt("First argument must be numeric array.");
-    
+   
+    /* default options */ 
     char jobz       = (nlhs > 1) ? 'A' : 'N'; // A(ll), S(mall) or N(o U or V)
-    char outputForm = (nlhs > 1) ? 'M' : 'V'; // M(atrix), V(ector) or T(rans)
-    bool trans = false; // return transpose V' instead of V [outputForm = 'T']
+    char outputForm = (nlhs > 1) ? 'M' : 'V'; // M(atrix) or V(ector)
 
+    /* override options */
     for (int i = 1; i < nrhs; i++)
     {   
-        char *c = mxArrayToString(prhs[i]); // no need to mxFree
+        char *c = mxArrayToString(prhs[i]);
         std::string str = c ? c : ""; // convert void to empty string
-        
+	if (c) mxFree(c);        
+
         if (str.compare("econ")==0)
             jobz = (nlhs > 1) ? 'S' : 'N';
         else if (str.compare("vector")==0)
             outputForm = 'V';
         else if (str.compare("matrix")==0)
             outputForm = 'M';      
-        else if (str.compare("trans")==0)
-            trans = outputForm = 'M';
         else
             mexErrMsgTxt("Arguments can be 'econ', 'vector' or 'matrix'.");
     }
@@ -92,9 +94,11 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     if (jobz=='S') udims[1] = mn;
     if (jobz=='N') udims[0] = udims[1] = 1;
 
-    mwSize vdims[3] = {n,n,p};
-    if (jobz=='S') vdims[0] = mn;
+    mwSize vdims[3] = {n,n,p}; 
+    if (jobz=='S') vdims[0] = mn; // note: this is actually v'
     if (jobz=='N') vdims[0] = vdims[1] = 1;
+
+std::cout << vdims[0] << " " << vdims[1] << std::endl;
 
 /* Octave: workaround for mxCreateNumericArray bug #64687 */
 #if !MATLAB_MEX_FILE
@@ -119,8 +123,8 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
 #endif
 
     /* catch errors in omp block (mexErrMsgTxt crashes). on error, info stores bad matrix index */
-    volatile int info = 0;
-
+    //volatile int info = 0;
+    std::atomic<int> info{0};
     
 /* run in parallel on single threads */
 #pragma omp parallel num_threads(nthreads)
@@ -128,7 +132,12 @@ if (m*n*p)
 { 
     /* space for i-th matrix of a (lapack overwrites) */
     void *a_i = LAPACKE_malloc( m * n * mxGetElementSize(a) );
-    if(!a_i) info = -1; // set error flag (cannot exit out of omp block) 
+
+    /* buffer for computing transpose */
+    void *buf = a_i; // reuse a_i if it's large enough 
+    if (vdims[0]*vdims[1] > m*n) buf = LAPACKE_malloc( vdims[0] * vdims[1] * mxGetElementSize(v) );
+
+    if(!a_i || !buf) info = -1; // set error flag (cannot exit out of omp block) 
 
     /* svd and transpose v */
 #pragma omp for schedule(static,1)
@@ -150,28 +159,28 @@ if (m*n*p)
         if(!mxIsComplex(a) && !mxIsDouble(a))
         {
             if (LAPACKE_sgesdd(LAPACK_COL_MAJOR, jobz, m, n, (float*)a_i, adims[0], (float*)s_i, (float*)u_i, udims[0], (float*)v_i, vdims[0])) info = i+1;
-            if (trans==false) transpose((float*)v_i, vdims[0], vdims[1]);
+            transpose((float*)v_i, vdims[0], vdims[1], (float*)buf);
             if (outputForm=='M') shiftrows((float*)s_i, sdims[0], sdims[1]);
         }
         /* real double */
         else if(!mxIsComplex(a) &&  mxIsDouble(a))
         {
             if (LAPACKE_dgesdd(LAPACK_COL_MAJOR, jobz, m, n, (double*)a_i, adims[0], (double*)s_i, (double*)u_i, udims[0], (double*)v_i, vdims[0])) info = i+1;
-            if (trans==false) transpose((double*)v_i, vdims[0], vdims[1]);
+            transpose((double*)v_i, vdims[0], vdims[1], (double*)buf);
             if (outputForm=='M') shiftrows((double*)s_i, sdims[0], sdims[1]);
         }
         /* complex float */
         else if( mxIsComplex(a) && !mxIsDouble(a))
         {
             if (LAPACKE_cgesdd(LAPACK_COL_MAJOR, jobz, m, n, (mxComplexSingle*)a_i, adims[0], (float*)s_i, (mxComplexSingle*)u_i, udims[0], (mxComplexSingle*)v_i, vdims[0])) info = i+1;
-            if (trans==false) transpose((mxComplexSingle*)v_i, vdims[0], vdims[1]);
+            transpose((mxComplexSingle*)v_i, vdims[0], vdims[1], (mxComplexSingle*)buf);
             if (outputForm=='M') shiftrows((float*)s_i, sdims[0], sdims[1]);
         }
         /* complex double */
         else if( mxIsComplex(a) &&  mxIsDouble(a))
         {
             if (LAPACKE_zgesdd(LAPACK_COL_MAJOR, jobz, m, n, (mxComplexDouble*)a_i, adims[0], (double*)s_i, (mxComplexDouble*)u_i, udims[0], (mxComplexDouble*)v_i, vdims[0])) info = i+1;
-            if (trans==false) transpose((mxComplexDouble*)v_i, vdims[0], vdims[1]);
+            transpose((mxComplexDouble*)v_i, vdims[0], vdims[1], (mxComplexDouble*)buf);
             if (outputForm=='M') shiftrows((double*)s_i, sdims[0], sdims[1]);
         }
         
@@ -181,6 +190,7 @@ if (m*n*p)
     } /* end of pragma omp for loop */
 
     if (a_i) LAPACKE_free(a_i);
+    if (a_i != buf) LAPACKE_free(buf);
     
 } /* end of pragma omp parallel block */
 
@@ -203,7 +213,7 @@ if (m*n*p)
     std::copy_n(adims, ndim, xdims);
     xdims[0] = sdims[0]; xdims[1] = sdims[1]; mxSetDimensions(s, xdims, ndim);    
     xdims[0] = udims[0]; xdims[1] = udims[1]; mxSetDimensions(u, xdims, ndim);
-    xdims[0] = vdims[trans]; xdims[1] = vdims[!trans]; mxSetDimensions(v, xdims, ndim);
+    xdims[0] = vdims[1]; xdims[1] = vdims[0]; mxSetDimensions(v, xdims, ndim);
 
     if (nlhs > 2)
     {
@@ -246,20 +256,16 @@ template<> void conjugate(float *, int, int) {}
 template<> void conjugate(double*, int, int) {}
 
 
-// In-place matrix transpose
+// In-place matrix transpose (with bufffer)
 template<typename T>
-inline void transpose(T *A, int m, int n)
+inline void transpose(T *A, int m, int n, T *buf)
 {
     conjugate(A, m, n);
-    
-    if (m < n) std::swap(m, n);
 
-    while (m > 1 && n > 1)
-    {
-        for (int i = 1; i < m; i++)
-            std::rotate(A+i, A+i*n, A+i*n+1);
-        
-        A += m;
-        n -= 1;
-    }
+    for (int i = 0; i < n; i++)
+        for (int j = 0; j < m; j++)
+            buf[j*n + i] = A[i*m + j];
+
+    std::copy(buf, buf + m*n, A);
 }
+
