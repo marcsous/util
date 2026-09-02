@@ -17,10 +17,11 @@ function [x y s v] = roi_points(im,radius,txt,clim)
 % -X to delete last ROI
 % -B to brighten
 % -D to darken
+% -P to print (~/Desktop/image.jpg)
 
 [nx ny ns ne] = size(im);
 
-if ne~=1 % extra dims not allow
+if ne~=1 % extra dims not allowed
     if ns==1 % except if ns==1
         [ns ne] = deal(ne,ns);
         im = reshape(im,[nx ny ns]);
@@ -124,6 +125,9 @@ while ~ismember(button,[3 27 81 113])
                 s = s(1:end-1);
                 v = v(1:end-1);
             end
+
+        case {80,112} % print (p or P)
+            [~] = lpr('~/Desktop/image.jpg');
 
     end
 
