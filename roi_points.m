@@ -4,8 +4,8 @@ function [x y s v] = roi_points(im,radius,txt,clim)
 % Returns x, y and (s)lice locations, and mean (v)alues.
 %
 % -im is a stack of 2D images [nx ny ns]
-% -radius is the no. pixels for ROIs [7]
-% -txt is a title for the Figure ['']
+% -radius in pixels for circular ROIs [7]
+% -txt for title ('  ' flexible spacing) ['']
 % -clim is passed to imagesc []
 %
 % Controls:
@@ -20,8 +20,13 @@ function [x y s v] = roi_points(im,radius,txt,clim)
 
 [nx ny ns ne] = size(im);
 
-if ne~=1 % no extra dimesions allowed
-    error('im can only be 2D or 3D array');
+if ne~=1 % extra dims not allow
+    if ns==1 % except if ns==1
+        [ns ne] = deal(ne,ns);
+        im = reshape(im,[nx ny ns]);
+    else
+        error('im can only be 2D or 3D array');
+    end
 end
 if nargin<2 || isempty(radius)
     radius = 7;
@@ -33,6 +38,8 @@ if nargin<3
 end
 if nargin<4
     clim = [-Inf Inf];
+elseif ~isnumeric(clim) || numel(clim)<1 || numel(clim)>2
+    error('argument ''clim'' invalid');
 end
 
 %% initialize
@@ -44,21 +51,8 @@ x = []; y = []; s = []; v = [];
 % reset figure
 figure(gcf); clf reset; subplot(1,1,1);
 
-% title spacing (treat '  ' as flexible spacing)
-n = numel(strfind(txt,'  '));
-if n>0
-    nspaces = 3;
-    h = title(txt,slice);
-    while h.Extent(3)<n/(n+1)
-        stretched_txt = strrep(txt,'  ',repmat(' ',1,nspaces));
-        h = title(stretched_txt,slice);
-        nspaces = nspaces+1;
-    end
-    txt = stretched_txt;
-end
-
 % capture keyboard events that otherwise go to the commandline
-set(gcf,'WindowKeyPressFcn',@(src, event) disp(''));
+set(gcf,'WindowKeyPressFcn',@(~,~) disp(''));
 
 %% capture user events
 
@@ -66,8 +60,22 @@ set(gcf,'WindowKeyPressFcn',@(src, event) disp(''));
 while ~ismember(button,[3 27 81 113])
 
     % update image
-    figure(gcf); imagesc(im(:,:,slice),clim); colorbar; title(txt,slice);
+    figure(gcf); imagesc(im(:,:,slice),clim); colorbar; %title(txt,slice);
  
+    % stretch title (treat '  ' as flexible spacing)
+    n = numel(strfind(txt,'  '));
+    if n==0
+        title(txt,slice);
+    else
+        nspaces = 3; % 2 spaces => nspaces
+        h = title(txt,slice,'Units','Normalized');
+        while h.Extent(3)<n/(n+1)
+            stxt = strrep(txt,'  ',repmat(' ',1,nspaces));
+            h = title(stxt,slice);
+            nspaces = nspaces+1;
+        end
+    end
+
     % draw ROIs on the image
     for n = 1:numel(s)
         if slice==s(n)
