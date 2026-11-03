@@ -1,7 +1,8 @@
 function flag = lpr(filename)
 %function lpr(filename)
-% Exports current Figure to 'image.png' on Desktop.
-% If filename is supplied, writes to filename(.tiff).
+% Exports current Figure to 'image.jpg' on Desktop.
+% If filename is supplied, writes to filename(.tif)
+% or uses the filename extension supplied.
 
 % no figures open!
 if isempty(get(0,'currentfigure'))
