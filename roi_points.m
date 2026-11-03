@@ -1,7 +1,7 @@
-function [x y s v] = roi_points(im,radius,txt,clim)
-%[x y s v] = roi_points(im,radius,txt,clim)
+function [x y s m v] = roi_points(im,radius,txt,clim)
+%[x y s m v] = roi_points(im,radius,txt,clim)
 % Receives a stack of slices for user to drop ROI points onto.
-% Returns x, y and (s)lice locations, and mean (v)alues.
+% Returns x, y and (s)lice locations, (m)ean and (v)ariance.
 %
 % -im is a stack of 2D images [nx ny ns]
 % -radius in pixels for circular ROIs [7]
@@ -18,6 +18,7 @@ function [x y s v] = roi_points(im,radius,txt,clim)
 % -B to brighten
 % -D to darken
 % -P to print (~/Desktop/image.jpg)
+% -Arrow keys move ROI position
 
 [nx ny ns ne] = size(im);
 
@@ -47,7 +48,7 @@ end
 
 button = 0;
 slice = ceil(ns/2);
-x = []; y = []; s = []; v = [];
+x = []; y = []; s = []; m = []; v = [];
 
 % reset figure
 figure(gcf); clf reset; subplot(1,1,1);
@@ -61,18 +62,17 @@ set(gcf,'WindowKeyPressFcn',@(~,~) disp(''));
 while ~ismember(button,[3 27 81 113])
 
     % update image
-    figure(gcf); imagesc(im(:,:,slice),clim); colorbar; %title(txt,slice);
- 
+    figure(gcf); imagesc(im(:,:,slice),clim); colorbar;
+    if ns==1; myslice = []; else; myslice = slice; end
+    h = title(txt,myslice,'Units','Normalized');
+
     % stretch title (treat '  ' as flexible spacing)
     n = numel(strfind(txt,'  '));
-    if n==0
-        title(txt,slice);
-    else
+    if n>0
         nspaces = 3; % 2 spaces => nspaces
-        h = title(txt,slice,'Units','Normalized');
         while h.Extent(3)<n/(n+1)
             stxt = strrep(txt,'  ',repmat(' ',1,nspaces));
-            h = title(stxt,slice);
+            h = title(stxt,myslice,'Units','Normalized');
             nspaces = nspaces+1;
         end
     end
@@ -84,12 +84,13 @@ while ~ismember(button,[3 27 81 113])
             
             mask = createMask(h);
             tmp = im(:,:,slice);
-            v(n) = mean(tmp(mask(:)));
+            m(n) = mean(tmp(mask(:)));
+            v(n) = var(cast(tmp(mask(:)),'like',m));
 
-            if     abs(v(n))>10; fmt = '%.0f';
-            elseif abs(v(n))> 1; fmt = '%.1f';
+            if     abs(m(n))>10; fmt = '%.0f';
+            elseif abs(m(n))> 1; fmt = '%.1f';
             else fmt = '%.2f'; end
-            text(y(n)+radius+1,x(n)+1,num2str(v(n),fmt),'Color','r','FontSize',14);
+            text(y(n)+radius+1,x(n)+1,num2str(m(n),fmt),'Color','r','FontSize',14);
         end
     end
 
@@ -123,11 +124,25 @@ while ~ismember(button,[3 27 81 113])
                 x = x(1:end-1);
                 y = y(1:end-1);
                 s = s(1:end-1);
+                m = m(1:end-1);
                 v = v(1:end-1);
             end
 
         case {80,112} % print (p or P)
             [~] = lpr('~/Desktop/image.jpg');
+
+        case 28 % left arrow
+            if ~isempty(y); y(end) = y(end)-1; end
+
+        case 29 % right arrow
+            if ~isempty(y); y(end) = y(end)+1; end
+
+        case 30 % up arrow
+            if ~isempty(x); x(end) = x(end)-1; end
+
+        case 31 % down arrow
+            if ~isempty(x); x(end) = x(end)+1; end
+
 
     end
 
