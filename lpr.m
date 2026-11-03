@@ -49,6 +49,10 @@ else
     fprintf('%s writing to %s\n',mfilename,filename);
 end
 
+% prevent it auto-changing xlim and ylim
+xlim(xlim);
+ylim(ylim);
+
 % proceed
 %Resolution = 1000; % default resolution (dots/inch?)
 %hgexport(gcf, filename, hgexport('factorystyle'), 'Format', format, 'Resolution', 1000);
