@@ -98,8 +98,6 @@ void mexFunction(int nlhs, mxArray *plhs[], int nrhs, const mxArray *prhs[])
     if (jobz=='S') vdims[0] = mn; // note: this is actually v'
     if (jobz=='N') vdims[0] = vdims[1] = 1;
 
-std::cout << vdims[0] << " " << vdims[1] << std::endl;
-
 /* Octave: workaround for mxCreateNumericArray bug #64687 */
 #if !MATLAB_MEX_FILE
     #include <version.h>
@@ -112,9 +110,10 @@ std::cout << vdims[0] << " " << vdims[1] << std::endl;
     if (!s || !u || !v) mexErrMsgTxt("Insufficent memory (s, u, v).");
    
     /* get no. threads from matlab (maxNumCompThreads) */
-    mxArray *mex_plhs[1], *mex_prhs[0];
-    mexCallMATLAB(1, mex_plhs, 0, mex_prhs, "maxNumCompThreads");
+    mxArray *mex_plhs[1] = {NULL};
+    mexCallMATLAB(1, mex_plhs, 0, NULL, "maxNumCompThreads");
     int nthreads = (int)mxGetScalar(mex_plhs[0]);
+    mxDestroyArray(mex_plhs[0]); 
     if (nthreads==1) mexWarnMsgTxt("pagesvd threads equals 1. Try increasing maxNumCompThreads.");
 
 /* Octave: disable openblas threading (conflicts with omp). matlab (mkl) seems okay */
@@ -123,7 +122,6 @@ std::cout << vdims[0] << " " << vdims[1] << std::endl;
 #endif
 
     /* catch errors in omp block (mexErrMsgTxt crashes). on error, info stores bad matrix index */
-    //volatile int info = 0;
     std::atomic<int> info{0};
     
 /* run in parallel on single threads */
